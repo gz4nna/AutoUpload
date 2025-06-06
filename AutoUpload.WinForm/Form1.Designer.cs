@@ -1,4 +1,6 @@
-﻿namespace AutoUpload.WinForm
+﻿using System;
+
+namespace AutoUpload.WinForm
 {
     partial class Form1
     {
@@ -99,6 +101,7 @@
             btnUpload.TabIndex = 0;
             btnUpload.Text = "Upload";
             btnUpload.UseVisualStyleBackColor = true;
+            btnUpload.Click += btnUpload_Click;
             // 
             // Form1
             // 

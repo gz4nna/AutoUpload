@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text.Json;
 
 using AutoUpload.Models;
@@ -71,7 +72,7 @@ namespace AutoUpload.WinForm
                 Properties.Settings.Default.LastPath = folderBrowserDialog.SelectedPath;
                 Properties.Settings.Default.Save();  
                 log.Info($"Choose Path：{folderBrowserDialog.SelectedPath}");
-                InitWatcher(folderBrowserDialog.SelectedPath);
+                InitWatcher(folderBrowserDialog.SelectedPath);                
             }
         }
 
@@ -113,6 +114,7 @@ namespace AutoUpload.WinForm
             watcher.Renamed += OnRenamed;
 
             watcher.EnableRaisingEvents = true;
+            UpdateFileRecord();
         }
 
         private void OnRenamed(object sender, RenamedEventArgs e)
@@ -178,6 +180,74 @@ namespace AutoUpload.WinForm
             File.WriteAllText(UploadTrackerPaths.PendingPath, pendingJson);
 
             log.Info($"监控更新：总文件 {currentFiles.Count} 个，待上传 {pendingFiles.Count} 个");
+        }
+
+        private async void btnUpload_Click(object sender, EventArgs e)
+        {
+            string watchPath = txtPath.Text;
+            List<string> pendingFiles = new();
+            if (File.Exists(UploadTrackerPaths.PendingPath))
+            {
+                try
+                {
+                    var pendingJson = await File.ReadAllTextAsync(UploadTrackerPaths.PendingPath);
+                    var state = JsonSerializer.Deserialize<UploadState>(pendingJson);
+                    if (state == null || state.FilesToUpload.Count == 0)
+                    {
+                        MessageBox.Show("没有待上传的文件");
+                        return;
+                    }
+                    pendingFiles = state.FilesToUpload.Select(x =>
+                        Path.Combine(watchPath, x)).ToList();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("读取待上传文件列表失败：" + ex.Message);
+                    log.Error("读取待上传文件列表失败", ex);
+                    return;
+                }
+            }
+                        
+            using var client = new HttpClient();
+            client.DefaultRequestHeaders.Add("X-Tenant-Id", "1627160160700962818");
+            client.DefaultRequestHeaders.Add("X-Trace-Id", "12345678");
+            client.DefaultRequestHeaders.Add("X-User-Id", "1433719562612506626");
+            client.DefaultRequestHeaders.Add("X-User-Name", "aa");
+
+            using var form = new MultipartFormDataContent();
+            foreach (var file in pendingFiles)
+            {
+                if (!File.Exists(file))
+                {
+                    log.Warn($"文件 {file} 不存在，跳过上传");
+                    continue;
+                }
+                var fileContent = new ByteArrayContent(File.ReadAllBytes(file));
+                fileContent.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("application/octet-stream");
+                form.Add(fileContent, "file", Path.GetFileName(file));
+            }
+
+            try
+            {
+                var response = await client.PostAsync("http://10.101.16.30:32767/dp-oss/api/v1/file-storages/upload/param", form);
+                var result = await response.Content.ReadAsStringAsync();
+                if (response.IsSuccessStatusCode)
+                {
+                    MessageBox.Show("上传成功");
+                    log.Info($"文件上传成功。服务器返回：{result}");
+                }
+                else
+                {
+                    MessageBox.Show($"上传失败：{response.StatusCode}\n{result}");
+                    Clipboard.SetText(result);
+                    log.Warn($"文件上传失败，返回：{result}");
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("上传出错：" + ex.Message);
+                log.Error("上传异常", ex);
+            }
         }
     }
 }
