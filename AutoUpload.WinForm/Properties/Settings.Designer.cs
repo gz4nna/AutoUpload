@@ -34,5 +34,101 @@ namespace AutoUpload.WinForm.Properties {
                 this["LastPath"] = value;
             }
         }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("http://10.101.16.30:32767/dp-oss/api/v1/file-storages/upload/param")]
+        public string TargetURL {
+            get {
+                return ((string)(this["TargetURL"]));
+            }
+            set {
+                this["TargetURL"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute(".dxf|.dwg")]
+        public string AllowedExtensions {
+            get {
+                return ((string)(this["AllowedExtensions"]));
+            }
+            set {
+                this["AllowedExtensions"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("^([a-zA-Z0-9]+)\\s([a-zA-Z0-9]+)\\s\\d.(dxf|dwg)")]
+        public string AllowedFileNameRules {
+            get {
+                return ((string)(this["AllowedFileNameRules"]));
+            }
+            set {
+                this["AllowedFileNameRules"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("1627160160700962818")]
+        public string XTenantId {
+            get {
+                return ((string)(this["XTenantId"]));
+            }
+            set {
+                this["XTenantId"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("12345678")]
+        public string XTraceId {
+            get {
+                return ((string)(this["XTraceId"]));
+            }
+            set {
+                this["XTraceId"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("1433719562612506626")]
+        public string XUserId {
+            get {
+                return ((string)(this["XUserId"]));
+            }
+            set {
+                this["XUserId"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("aa")]
+        public string XUserName {
+            get {
+                return ((string)(this["XUserName"]));
+            }
+            set {
+                this["XUserName"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("http://10.101.16.30:32761/dp-mould/api/v1/mould-sizes/cutter")]
+        public string WriteURL {
+            get {
+                return ((string)(this["WriteURL"]));
+            }
+            set {
+                this["WriteURL"] = value;
+            }
+        }
     }
 }

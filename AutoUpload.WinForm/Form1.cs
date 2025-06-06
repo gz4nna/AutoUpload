@@ -1,7 +1,8 @@
-using System.Linq;
+using System.Net.Http.Json;
 using System.Text.Json;
-
+using System.Text.RegularExpressions;
 using AutoUpload.Models;
+using AutoUpload.Models.ResponseModels;
 
 using log4net;
 
@@ -9,89 +10,113 @@ namespace AutoUpload.WinForm
 {
     public partial class Form1 : Form
     {
+        #region parameters
+        // addin
         private static readonly ILog log = LogManager.GetLogger(typeof(Form1));
-        private FileSystemWatcher watcher;
-        private readonly string[] allowedExtensions = new[] { ".txt", ".jpg", ".png" };
 
+        // settings
+        /// <summary>
+        /// Allowed file extensions for monitoring and uploading.
+        /// todo: get from settings or config file
+        /// </summary>
+        private string[]? allowedExtensions;
+        /// <summary>
+        /// Allowed file name rules for monitoring and uploading.
+        /// </summary>
+        private string allowedFileNameRules;
 
+        // param
+        /// <summary>
+        /// NotifyIcon for system tray interaction.
+        /// </summary>
+        private FileSystemWatcher? watcher;
+        /// <summary>
+        /// Target URL for file upload.
+        /// </summary>
+        private string? targetURL;
+        private string? writeURL;
+        #endregion
+
+        #region Init
         public Form1()
         {
             InitializeComponent();
             Init();
+            InitWatcher(txtPath.Text);
         }
 
+        /// <summary>
+        /// Initializes the Form1 instance, reading settings and binding controls.
+        /// </summary>
+        /// <returns></returns>
         public bool Init()
         {
             log.Info($"Initializing Form1...");
 
-            #region Reading&Binding Settings
-            log.Info($"Reading Settings: <LastPath>...");
-            var lastPath = Properties.Settings.Default.LastPath;
-            if (Directory.Exists(lastPath))
+            try
             {
-                txtPath.Text = lastPath;
-                log.Info($"Read Settings: <LastPath> values {lastPath}");
-                InitWatcher(lastPath);
+                #region Reading&Binding Settings
+                log.Info($"Reading Settings: <LastPath>...");
+                var lastPath = Properties.Settings.Default.LastPath;
+                if (Directory.Exists(lastPath))
+                {
+                    txtPath.Text = lastPath;
+                    log.Info($"Read Settings: <LastPath> values {lastPath}");                    
+                }
+                else log.Warn($"Read Settings: <LastPath> not exists, please select a valid path.");
+
+                log.Info($"Reading Settings: <TargetURL>...");
+                targetURL = Properties.Settings.Default.TargetURL;
+                log.Info($"Read Settings: <TargetURL> values {targetURL}");
+
+                log.Info($"Reading Settings: <WriteURL>...");
+                writeURL = Properties.Settings.Default.WriteURL;
+                log.Info($"Read Settings: <WriteURL> values {writeURL}");
+
+                log.Info($"Reading Settings: <AllowedExtensions>...");
+                allowedExtensions = Properties.Settings.Default.AllowedExtensions.Split("|");
+                log.Info($"Reading Settings: <allowedExtensions> values {allowedExtensions}");
+
+                log.Info($"Reading Settings: <AllowedFileNameRules>...");
+                allowedFileNameRules = Properties.Settings.Default.AllowedFileNameRules;
+                log.Info($"Reading Settings: <AllowedFileNameRules> values {allowedFileNameRules}");
+                #endregion
+
+                #region Controls Initialization
+                log.Info($"Initializing Controls...");
+#if DEBUG
+                this.txtPath.ReadOnly = false;
+#else
+                this.txtPath.ReadOnly = true; // prevent user from changing path in release mode
+#endif
+
+                this.notifyIcon = new NotifyIcon();
+                this.contextMenuStrip = new ContextMenuStrip();
+                this.menuShow = new ToolStripMenuItem("Show");
+                this.menuExit = new ToolStripMenuItem("Exit");
+
+                this.contextMenuStrip.Items.AddRange(new ToolStripItem[] {
+                    this.menuShow,
+                    this.menuExit
+                });
+
+                this.notifyIcon.Icon = SystemIcons.Application;
+                this.notifyIcon.ContextMenuStrip = this.contextMenuStrip;
+                this.notifyIcon.Visible = true;
+                this.notifyIcon.Text = "AutoLoad By GZ4nna";
+                this.notifyIcon.DoubleClick += (s, e) => ShowMainWindow();
+
+                this.menuShow.Click += (s, e) => ShowMainWindow();
+                this.menuExit.Click += (s, e) => Application.Exit();
+                log.Info($"Finished Controls Initialize!");
+#endregion
             }
-            else log.Warn($"Read Settings: <LastPath> not exists, please select a valid path.");
-            #endregion
-
-            #region Controller Initialization
-            this.txtPath.ReadOnly = true;
-
-            this.notifyIcon = new NotifyIcon();
-            this.contextMenuStrip = new ContextMenuStrip();
-            this.menuShow = new ToolStripMenuItem("Show");
-            this.menuExit = new ToolStripMenuItem("Exit");
-
-            this.contextMenuStrip.Items.AddRange(new ToolStripItem[] {
-                this.menuShow,
-                this.menuExit
-            });
-
-            this.notifyIcon.Icon = SystemIcons.Application;
-            this.notifyIcon.ContextMenuStrip = this.contextMenuStrip;
-            this.notifyIcon.Visible = true;
-            this.notifyIcon.Text = "AutoLoad By GZ4nna";
-            this.notifyIcon.DoubleClick += (s, e) => ShowMainWindow();
-
-            this.menuShow.Click += (s, e) => ShowMainWindow();
-            this.menuExit.Click += (s, e) => Application.Exit();
-            #endregion
-
-            log.Info($"Finished Initialize!");
+            catch(Exception ex)
+            {
+                log.Error($"Initializing Form1 Failed: {ex.Message}");
+            }
+            log.Info($"Finished Form1 Initialize!");
             return true;
-        }
-
-        private void btnBrowsePath_Click(object sender, EventArgs e)
-        {
-            using var folderBrowserDialog = new FolderBrowserDialog();
-            if (folderBrowserDialog.ShowDialog() == DialogResult.OK)
-            {
-                txtPath.Text = folderBrowserDialog.SelectedPath;
-                Properties.Settings.Default.LastPath = folderBrowserDialog.SelectedPath;
-                Properties.Settings.Default.Save();  
-                log.Info($"Choose Path：{folderBrowserDialog.SelectedPath}");
-                InitWatcher(folderBrowserDialog.SelectedPath);                
-            }
-        }
-
-        protected override void OnFormClosing(FormClosingEventArgs e)
-        {
-            if (e.CloseReason == CloseReason.UserClosing)
-            {
-                e.Cancel = true; 
-                this.Hide();
-                notifyIcon.ShowBalloonTip(1000, "后台运行中", "程序已最小化至托盘", ToolTipIcon.Info);
-            }
-            base.OnFormClosing(e);
-        }
-
-        private void ShowMainWindow()
-        {
-            this.Show();
-            this.WindowState = FormWindowState.Normal;
-            this.BringToFront();
         }
 
         private void InitWatcher(string path)
@@ -116,31 +141,209 @@ namespace AutoUpload.WinForm
             watcher.EnableRaisingEvents = true;
             UpdateFileRecord();
         }
+        #endregion
 
+        #region UI Event
+        /// <summary>
+        /// Handles the Browse button click event to select a directory for monitoring.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void btnBrowsePath_Click(object sender, EventArgs e)
+        {
+            using var folderBrowserDialog = new FolderBrowserDialog();
+            if (folderBrowserDialog.ShowDialog() == DialogResult.OK)
+            {
+                txtPath.Text = folderBrowserDialog.SelectedPath;
+                Properties.Settings.Default.LastPath = folderBrowserDialog.SelectedPath;
+                Properties.Settings.Default.Save();  
+                log.Info($"Choose Path：{folderBrowserDialog.SelectedPath}");
+                InitWatcher(folderBrowserDialog.SelectedPath);                
+            }
+        }
+
+        /// <summary>
+        /// Uploads files listed in the pending.json file to the target URL.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private async void btnUpload_Click(object sender, EventArgs e)
+        {
+            // 构造待上传文件列表
+            string watchPath = txtPath.Text;
+            List<string> pendingFiles = new();
+            if (File.Exists(UploadTrackerPaths.PendingPath))
+            {
+                try
+                {
+                    var pendingJson = await File.ReadAllTextAsync(UploadTrackerPaths.PendingPath);
+                    var state = JsonSerializer.Deserialize<UploadState>(pendingJson);
+                    if (state == null || state.FilesToUpload.Count == 0)
+                    {
+                        MessageBox.Show("没有待上传的文件");
+                        return;
+                    }
+                    pendingFiles = state.FilesToUpload.Select(x =>
+                        Path.Combine(watchPath, x)).ToList();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("读取待上传文件列表失败：" + ex.Message);
+                    log.Error("读取待上传文件列表失败", ex);
+                    return;
+                }
+            }
+
+            // 调用上传接口
+            using var sendClient = new HttpClient();
+            sendClient.DefaultRequestHeaders.Add("X-Tenant-Id", Properties.Settings.Default.XTenantId);
+            sendClient.DefaultRequestHeaders.Add("X-Trace-Id", Properties.Settings.Default.XTraceId);
+            sendClient.DefaultRequestHeaders.Add("X-User-Id", Properties.Settings.Default.XUserId);
+            sendClient.DefaultRequestHeaders.Add("X-User-Name", Properties.Settings.Default.XUserName);
+
+            // 根据型号查询刀模ID
+            using var queryClient = new HttpClient();
+
+            // 上传文件后拿到的响应
+            var responseModels = new List<FileStorageUploadParamResponseModel>();
+
+            foreach (var file in pendingFiles)
+            {
+                if (!File.Exists(file))
+                {
+                    log.Warn($"文件 {file} 不存在，跳过上传");
+                    continue;
+                }
+
+                // 获取文件名并拆分
+                string[]? fileNameParts = Path.GetFileNameWithoutExtension(file)?.Split(' ');
+                // 用get去查型号规格对应的ID
+                var queryResponse = await queryClient.GetAsync($"{writeURL}?partsCode={fileNameParts[0]}&specification={fileNameParts[1]}");
+                var queryResult = await queryResponse.Content.ReadAsStringAsync();
+                if (!queryResponse.IsSuccessStatusCode)
+                {
+                    MessageBox.Show($"查询失败：{queryResponse.StatusCode}\n{queryResult}");
+                    log.Warn($"查询失败：{queryResult}");
+                    continue;
+                }
+                //get结果
+                var queryData = JsonSerializer.Deserialize<FileStorageUploadParamResponseModel>(queryResult);
+                // 如果比已有的数量还多,说明是新的
+                if (queryData.data.Count < int.Parse(fileNameParts[3]))
+                {
+
+                }
+                // 旧的不需要增加创建信息
+                else
+                {
+                    
+                }
+
+                    var fileContent = new ByteArrayContent(File.ReadAllBytes(file));
+                fileContent.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("application/octet-stream");
+                var form = new MultipartFormDataContent();
+                form.Add(fileContent, "file", Path.GetFileName(file));
+
+                var response = await sendClient.PostAsync(targetURL, form);
+                var result = await response.Content.ReadAsStringAsync();
+
+                try
+                {
+                    if (response.IsSuccessStatusCode)
+                    {
+                        MessageBox.Show($"Upload Completed{response}");
+                        log.Info($"Upload Completed:{result}");
+                        // 将result按照FileStorageUploadParamResponseModel读出来
+                        var uploadResponse = JsonSerializer.Deserialize<FileStorageUploadParamResponseModel>(result);
+                        responseModels.Add(uploadResponse);
+                    }
+                    else
+                    {
+                        MessageBox.Show($"Upload Failed:{response.StatusCode}\n{result}");
+#if DEBUG
+                        Clipboard.SetText(result);
+#endif
+                        log.Warn($"Upload Failed:{result}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("上传出错：" + ex.Message);
+                    log.Error("上传异常", ex);
+                }                
+            }
+                        
+            // 调用写入接口
+            using var writeClient = new HttpClient();
+            writeClient.DefaultRequestHeaders.Add("X-Tenant-Id", Properties.Settings.Default.XTenantId);
+            writeClient.DefaultRequestHeaders.Add("X-Trace-Id", Properties.Settings.Default.XTraceId);
+            writeClient.DefaultRequestHeaders.Add("X-User-Id", Properties.Settings.Default.XUserId);
+            writeClient.DefaultRequestHeaders.Add("X-User-Name", Properties.Settings.Default.XUserName);
+
+
+            // 更新 uploaded.json 文件
+        }
+        
+        #endregion
+
+        #region Form Event
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            if (e.CloseReason == CloseReason.UserClosing)
+            {
+                e.Cancel = true;
+                this.Hide();
+                notifyIcon.ShowBalloonTip(1000, "后台运行中", "程序已最小化至托盘", ToolTipIcon.Info);
+            }
+            base.OnFormClosing(e);
+        }
+
+        private void ShowMainWindow()
+        {
+            this.Show();
+            this.WindowState = FormWindowState.Normal;
+            this.BringToFront();
+        }
+        #endregion
+
+        #region FileSystemWatcher Events
+        /// <summary>
+        /// Renamed event handler for FileSystemWatcher.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void OnRenamed(object sender, RenamedEventArgs e)
         {
             log.Info($"[FileRenamed] {e.ChangeType}: {e.FullPath}");
-            //MessageBox.Show($"[FileRenamed] {e.ChangeType}: {e.FullPath}");
             UpdateFileRecord();
         }
 
+        /// <summary>
+        /// Changed event handler for FileSystemWatcher.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void OnChanged(object sender, FileSystemEventArgs e)
         {
             log.Info($"[FileChanged] {e.ChangeType}: {e.FullPath}");
-            //MessageBox.Show($"[FileChanged] {e.ChangeType}: {e.FullPath}");
+            // MessageBox.Show($"[FileChanged] {e.ChangeType}: {e.FullPath}");
             UpdateFileRecord();
         }
 
+        /// <summary>
+        /// Updates the file record by checking the current files in the watch directory
+        /// </summary>
         private void UpdateFileRecord()
         {
             string watchPath = txtPath.Text;
             if (!Directory.Exists(watchPath)) return;
 
-            // All files in the watch directory with allowed extensions
+            // Get all files in the watch directory with allowed extensions and matching file name rules
             var currentFiles = Directory
                 .EnumerateFiles(watchPath)
                 .Where(f => allowedExtensions.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
                 .Select(f => Path.GetFileName(f))
+                .Where(name => Regex.Match(name, @allowedFileNameRules).Success)
                 .ToList();
 
             // Load uploaded file names (if not exists, it will be empty)
@@ -182,72 +385,10 @@ namespace AutoUpload.WinForm
             log.Info($"监控更新：总文件 {currentFiles.Count} 个，待上传 {pendingFiles.Count} 个");
         }
 
-        private async void btnUpload_Click(object sender, EventArgs e)
-        {
-            string watchPath = txtPath.Text;
-            List<string> pendingFiles = new();
-            if (File.Exists(UploadTrackerPaths.PendingPath))
-            {
-                try
-                {
-                    var pendingJson = await File.ReadAllTextAsync(UploadTrackerPaths.PendingPath);
-                    var state = JsonSerializer.Deserialize<UploadState>(pendingJson);
-                    if (state == null || state.FilesToUpload.Count == 0)
-                    {
-                        MessageBox.Show("没有待上传的文件");
-                        return;
-                    }
-                    pendingFiles = state.FilesToUpload.Select(x =>
-                        Path.Combine(watchPath, x)).ToList();
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show("读取待上传文件列表失败：" + ex.Message);
-                    log.Error("读取待上传文件列表失败", ex);
-                    return;
-                }
-            }
-                        
-            using var client = new HttpClient();
-            client.DefaultRequestHeaders.Add("X-Tenant-Id", "1627160160700962818");
-            client.DefaultRequestHeaders.Add("X-Trace-Id", "12345678");
-            client.DefaultRequestHeaders.Add("X-User-Id", "1433719562612506626");
-            client.DefaultRequestHeaders.Add("X-User-Name", "aa");
+        #endregion
 
-            using var form = new MultipartFormDataContent();
-            foreach (var file in pendingFiles)
-            {
-                if (!File.Exists(file))
-                {
-                    log.Warn($"文件 {file} 不存在，跳过上传");
-                    continue;
-                }
-                var fileContent = new ByteArrayContent(File.ReadAllBytes(file));
-                fileContent.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("application/octet-stream");
-                form.Add(fileContent, "file", Path.GetFileName(file));
-            }
+        #region
+        #endregion
 
-            try
-            {
-                var response = await client.PostAsync("http://10.101.16.30:32767/dp-oss/api/v1/file-storages/upload/param", form);
-                var result = await response.Content.ReadAsStringAsync();
-                if (response.IsSuccessStatusCode)
-                {
-                    MessageBox.Show("上传成功");
-                    log.Info($"文件上传成功。服务器返回：{result}");
-                }
-                else
-                {
-                    MessageBox.Show($"上传失败：{response.StatusCode}\n{result}");
-                    Clipboard.SetText(result);
-                    log.Warn($"文件上传失败，返回：{result}");
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show("上传出错：" + ex.Message);
-                log.Error("上传异常", ex);
-            }
-        }
     }
 }
