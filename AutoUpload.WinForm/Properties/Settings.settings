@@ -27,7 +27,7 @@
       <Value Profile="(Default)">aa</Value>
     </Setting>
     <Setting Name="WriteURL" Type="System.String" Scope="User">
-      <Value Profile="(Default)">http://10.101.16.30:32761/dp-mould/api/v1/mould-sizes/cutter</Value>
+      <Value Profile="(Default)">http://10.101.16.30:32767/dp-mould/api/v1/mould-sizes/cutter</Value>
     </Setting>
   </Settings>
 </SettingsFile>

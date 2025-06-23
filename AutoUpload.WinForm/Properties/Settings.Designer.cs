@@ -121,7 +121,7 @@ namespace AutoUpload.WinForm.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("http://10.101.16.30:32761/dp-mould/api/v1/mould-sizes/cutter")]
+        [global::System.Configuration.DefaultSettingValueAttribute("http://10.101.16.30:32767/dp-mould/api/v1/mould-sizes/cutter")]
         public string WriteURL {
             get {
                 return ((string)(this["WriteURL"]));

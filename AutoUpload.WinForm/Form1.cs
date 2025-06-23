@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Timers;
 using AutoUpload.Models;
 using AutoUpload.Models.ResponseModels;
 
@@ -11,27 +12,26 @@ namespace AutoUpload.WinForm
     public partial class Form1 : Form
     {
         #region parameters
-        // addin
+        // 日志
         private static readonly ILog log = LogManager.GetLogger(typeof(Form1));
 
-        // settings
+        // 从settings里面取用
         /// <summary>
-        /// Allowed file extensions for monitoring and uploading.
-        /// todo: get from settings or config file
+        /// 上传文件的后缀名集合
         /// </summary>
         private string[]? allowedExtensions;
         /// <summary>
-        /// Allowed file name rules for monitoring and uploading.
+        /// 文件名合法规则
         /// </summary>
         private string allowedFileNameRules;
 
-        // param
+        // 私有成员变量
         /// <summary>
-        /// NotifyIcon for system tray interaction.
+        /// 本地文件夹监视器
         /// </summary>
         private FileSystemWatcher? watcher;
         /// <summary>
-        /// Target URL for file upload.
+        /// 上传的目标URL
         /// </summary>
         private string? targetURL;
         private string? writeURL;
@@ -46,40 +46,40 @@ namespace AutoUpload.WinForm
         }
 
         /// <summary>
-        /// Initializes the Form1 instance, reading settings and binding controls.
+        /// 初始化主要窗体的实例,并读取设置和绑定控件。
         /// </summary>
         /// <returns></returns>
         public bool Init()
         {
-            log.Info($"Initializing Form1...");
+            log.Info($"初始化主窗口...");
 
             try
             {
-                #region Reading&Binding Settings
-                log.Info($"Reading Settings: <LastPath>...");
+                #region 读取设置
+                log.Info($"读取配置文件: <LastPath>...");
                 var lastPath = Properties.Settings.Default.LastPath;
                 if (Directory.Exists(lastPath))
                 {
                     txtPath.Text = lastPath;
-                    log.Info($"Read Settings: <LastPath> values {lastPath}");                    
+                    log.Info($"读取配置文件: <LastPath> values {lastPath}");                    
                 }
-                else log.Warn($"Read Settings: <LastPath> not exists, please select a valid path.");
+                else log.Warn($"读取配置文件: <LastPath> not exists, please select a valid path.");
 
-                log.Info($"Reading Settings: <TargetURL>...");
+                log.Info($"读取配置文件: <TargetURL>...");
                 targetURL = Properties.Settings.Default.TargetURL;
-                log.Info($"Read Settings: <TargetURL> values {targetURL}");
+                log.Info($"读取配置文件: <TargetURL> values {targetURL}");
 
-                log.Info($"Reading Settings: <WriteURL>...");
+                log.Info($"读取配置文件: <WriteURL>...");
                 writeURL = Properties.Settings.Default.WriteURL;
-                log.Info($"Read Settings: <WriteURL> values {writeURL}");
+                log.Info($"读取配置文件: <WriteURL> values {writeURL}");
 
-                log.Info($"Reading Settings: <AllowedExtensions>...");
+                log.Info($"读取配置文件: <AllowedExtensions>...");
                 allowedExtensions = Properties.Settings.Default.AllowedExtensions.Split("|");
-                log.Info($"Reading Settings: <allowedExtensions> values {allowedExtensions}");
+                log.Info($"读取配置文件: <allowedExtensions> values {allowedExtensions}");
 
-                log.Info($"Reading Settings: <AllowedFileNameRules>...");
+                log.Info($"读取配置文件: <AllowedFileNameRules>...");
                 allowedFileNameRules = Properties.Settings.Default.AllowedFileNameRules;
-                log.Info($"Reading Settings: <AllowedFileNameRules> values {allowedFileNameRules}");
+                log.Info($"读取配置文件: <AllowedFileNameRules> values {allowedFileNameRules}");
                 #endregion
 
                 #region Controls Initialization
@@ -87,7 +87,7 @@ namespace AutoUpload.WinForm
 #if DEBUG
                 this.txtPath.ReadOnly = false;
 #else
-                this.txtPath.ReadOnly = true; // prevent user from changing path in release mode
+                this.txtPath.ReadOnly = true; // 发布版本中禁止直接在文本框中修改路径,可以通过UI设置来修改
 #endif
 
                 this.notifyIcon = new NotifyIcon();
@@ -108,7 +108,7 @@ namespace AutoUpload.WinForm
 
                 this.menuShow.Click += (s, e) => ShowMainWindow();
                 this.menuExit.Click += (s, e) => Application.Exit();
-                log.Info($"Finished Controls Initialize!");
+                log.Info($"控件 初始化完成!");
 #endregion
             }
             catch(Exception ex)
@@ -143,9 +143,9 @@ namespace AutoUpload.WinForm
         }
         #endregion
 
-        #region UI Event
+        #region UI事件
         /// <summary>
-        /// Handles the Browse button click event to select a directory for monitoring.
+        /// 点击浏览按钮选择一个目录进行监控。
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
@@ -157,21 +157,37 @@ namespace AutoUpload.WinForm
                 txtPath.Text = folderBrowserDialog.SelectedPath;
                 Properties.Settings.Default.LastPath = folderBrowserDialog.SelectedPath;
                 Properties.Settings.Default.Save();  
-                log.Info($"Choose Path：{folderBrowserDialog.SelectedPath}");
+                log.Info($"选择路径: {folderBrowserDialog.SelectedPath}");
                 InitWatcher(folderBrowserDialog.SelectedPath);                
             }
         }
 
         /// <summary>
-        /// Uploads files listed in the pending.json file to the target URL.
+        /// 上传按钮点击事件处理。
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
         private async void btnUpload_Click(object sender, EventArgs e)
         {
+            #region 变量
             // 构造待上传文件列表
             string watchPath = txtPath.Text;
             List<string> pendingFiles = new();
+            // 查询刀模ID和型号规格是否存在
+            using var queryClient = new HttpClient();
+            // 上传文件
+            using var sendClient = new HttpClient();
+            // 写入文件
+            using var writeClient = new HttpClient();
+            // 上传文件后拿到的响应
+            var responseModels = new List<FileStorageUploadParamResponseModel>();
+            List<MouldSizesCutterPostResponseModel> mouldSizesCutterPostResponseModels = new();
+
+            #endregion
+
+            // 检查路径是否存在
+            log.Info($"上传事件开始");
+            log.Info($"检查路径是否存在: {watchPath}");
             if (File.Exists(UploadTrackerPaths.PendingPath))
             {
                 try
@@ -180,6 +196,7 @@ namespace AutoUpload.WinForm
                     var state = JsonSerializer.Deserialize<UploadState>(pendingJson);
                     if (state == null || state.FilesToUpload.Count == 0)
                     {
+                        log.Warn("没有待上传的文件，跳过上传");
                         MessageBox.Show("没有待上传的文件");
                         return;
                     }
@@ -193,69 +210,95 @@ namespace AutoUpload.WinForm
                     return;
                 }
             }
-
-            // 调用上传接口
-            using var sendClient = new HttpClient();
-            sendClient.DefaultRequestHeaders.Add("X-Tenant-Id", Properties.Settings.Default.XTenantId);
-            sendClient.DefaultRequestHeaders.Add("X-Trace-Id", Properties.Settings.Default.XTraceId);
-            sendClient.DefaultRequestHeaders.Add("X-User-Id", Properties.Settings.Default.XUserId);
-            sendClient.DefaultRequestHeaders.Add("X-User-Name", Properties.Settings.Default.XUserName);
-
-            // 根据型号查询刀模ID
-            using var queryClient = new HttpClient();
-
-            // 上传文件后拿到的响应
-            var responseModels = new List<FileStorageUploadParamResponseModel>();
+            
+            // 根据型号查询刀模ID添加头            
+            queryClient.DefaultRequestHeaders.Add("X-Tenant-Id", Properties.Settings.Default.XTenantId);
+            queryClient.DefaultRequestHeaders.Add("X-Trace-Id", Properties.Settings.Default.XTraceId);
+            queryClient.DefaultRequestHeaders.Add("X-User-Id", Properties.Settings.Default.XUserId);
+            queryClient.DefaultRequestHeaders.Add("X-Timestamp", DateTime.Now.ToString());
 
             foreach (var file in pendingFiles)
             {
+                // 检查文件是否存在
                 if (!File.Exists(file))
                 {
                     log.Warn($"文件 {file} 不存在，跳过上传");
                     continue;
                 }
 
-                // 获取文件名并拆分
-                string[]? fileNameParts = Path.GetFileNameWithoutExtension(file)?.Split(' ');
-                // 用get去查型号规格对应的ID
-                var queryResponse = await queryClient.GetAsync($"{writeURL}?partsCode={fileNameParts[0]}&specification={fileNameParts[1]}");
-                var queryResult = await queryResponse.Content.ReadAsStringAsync();
-                if (!queryResponse.IsSuccessStatusCode)
+                try
                 {
-                    MessageBox.Show($"查询失败：{queryResponse.StatusCode}\n{queryResult}");
-                    log.Warn($"查询失败：{queryResult}");
+                    // 获取文件名并拆分
+                    string[]? fileNameParts = Path.GetFileNameWithoutExtension(file)?.Split(' ');
+                    log.Info($"当前文件: {file} with parts: {string.Join(", ", fileNameParts)}");
+                    log.Info($"访问地址: {writeURL}?partsCode={fileNameParts[0]}&specification={fileNameParts[1]}");
+
+                    // 用get去查型号规格对应的ID
+                    log.Info($"查询型号规格对应的ID...");
+                    var queryResponse = await queryClient.GetAsync($"{writeURL}?partsCode={fileNameParts[0]}&specification={fileNameParts[1]}");
+                    var queryResult = await queryResponse.Content.ReadAsStringAsync();
+                    if (!queryResponse.IsSuccessStatusCode)
+                    {
+                        MessageBox.Show($"查询失败：{queryResponse.StatusCode}\n{queryResult}");
+                        log.Warn($"查询失败：{queryResult}");
+                        continue;
+                    }
+
+                    // get结果
+                    var queryData = JsonSerializer.Deserialize<FileStorageUploadParamResponseModel>(queryResult);
+                    log.Info($"查询结束,正在处理...");
+
+                    // 如果已有的型号规格中已经有了该编号文件,那就不上传了
+                    if (queryData.data.Select(d => d.fileName.Split().Last()).Contains(fileNameParts[2]))
+                    {
+                        log.Info($"文件 {file} 已经存在于型号规格中，跳过上传");
+                        continue;
+                    }
+                }
+                catch (Exception ex)
+                {
                     continue;
                 }
-                //get结果
-                var queryData = JsonSerializer.Deserialize<FileStorageUploadParamResponseModel>(queryResult);
-                // 如果比已有的数量还多,说明是新的
-                if (queryData.data.Count < int.Parse(fileNameParts[3]))
-                {
-
-                }
-                // 旧的不需要增加创建信息
-                else
-                {
-                    
-                }
-
-                    var fileContent = new ByteArrayContent(File.ReadAllBytes(file));
-                fileContent.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("application/octet-stream");
-                var form = new MultipartFormDataContent();
-                form.Add(fileContent, "file", Path.GetFileName(file));
-
-                var response = await sendClient.PostAsync(targetURL, form);
-                var result = await response.Content.ReadAsStringAsync();
 
                 try
                 {
+                    // 读取文件内容
+                    log.Info($"读取文件内容...");
+                    var fileContent = new ByteArrayContent(File.ReadAllBytes(file));
+                    log.Info($"读取文件内容完成，文件大小: {fileContent.Headers.ContentLength} 字节");
+
+                    // 设置请求头
+                    fileContent.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("application/octet-stream");
+                    var form = new MultipartFormDataContent();
+                    form.Add(fileContent, "file", Path.GetFileName(file));
+
+                    // 调用上传接口                
+                    sendClient.DefaultRequestHeaders.Add("X-Tenant-Id", Properties.Settings.Default.XTenantId);
+                    sendClient.DefaultRequestHeaders.Add("X-Trace-Id", Properties.Settings.Default.XTraceId);
+                    sendClient.DefaultRequestHeaders.Add("X-User-Id", Properties.Settings.Default.XUserId);
+                    sendClient.DefaultRequestHeaders.Add("X-User-Name", Properties.Settings.Default.XUserName);
+
+                    var response = await sendClient.PostAsync(targetURL, form);
+                    var result = await response.Content.ReadAsStringAsync();
+
                     if (response.IsSuccessStatusCode)
                     {
-                        MessageBox.Show($"Upload Completed{response}");
-                        log.Info($"Upload Completed:{result}");
+                        // MessageBox.Show($"Upload Completed{response}");
+                        log.Info($"上传文件成功:{result}");
                         // 将result按照FileStorageUploadParamResponseModel读出来
                         var uploadResponse = JsonSerializer.Deserialize<FileStorageUploadParamResponseModel>(result);
                         responseModels.Add(uploadResponse);
+
+                        MouldSizesCutterPostResponseModel mouldSizesCutterPostResponseModel = new();
+                        mouldSizesCutterPostResponseModel.containerNum = 0; // 默认值
+                        mouldSizesCutterPostResponseModel.cutterBlankSpec = ""; // 默认值
+                        mouldSizesCutterPostResponseModel.cutterType = 0; // 默认值
+                        mouldSizesCutterPostResponseModel.fileId = long.Parse(uploadResponse.data.First().fileId);
+                        mouldSizesCutterPostResponseModel.fileName = uploadResponse.data.First().fileName;
+                        mouldSizesCutterPostResponseModel.fileUrl = uploadResponse.data.First().fileUrl;
+                        mouldSizesCutterPostResponseModel.mouldSizeCutterId = 0; // 默认值
+                        mouldSizesCutterPostResponseModel.mouldSizeId = 0; // 默认值
+                        mouldSizesCutterPostResponseModel.seq = 0; // 默认值
                     }
                     else
                     {
@@ -270,23 +313,45 @@ namespace AutoUpload.WinForm
                 {
                     MessageBox.Show("上传出错：" + ex.Message);
                     log.Error("上传异常", ex);
-                }                
+                }
             }
-                        
-            // 调用写入接口
-            using var writeClient = new HttpClient();
+
+            foreach (var response in responseModels)
+            {
+                try
+                {
+                    
+                }
+                catch (Exception ex)
+                {
+
+                }
+            }
+
+            // 调用写入接口                
             writeClient.DefaultRequestHeaders.Add("X-Tenant-Id", Properties.Settings.Default.XTenantId);
             writeClient.DefaultRequestHeaders.Add("X-Trace-Id", Properties.Settings.Default.XTraceId);
             writeClient.DefaultRequestHeaders.Add("X-User-Id", Properties.Settings.Default.XUserId);
             writeClient.DefaultRequestHeaders.Add("X-User-Name", Properties.Settings.Default.XUserName);
 
+            // 开始写入
+
+            // 成功
 
             // 更新 uploaded.json 文件
+
+            // 失败
+
+            // 结束
         }
-        
+
         #endregion
 
-        #region Form Event
+        #region 窗体事件
+        /// <summary>
+        /// 关闭时最小化
+        /// </summary>
+        /// <param name="e"></param>
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             if (e.CloseReason == CloseReason.UserClosing)
@@ -306,9 +371,9 @@ namespace AutoUpload.WinForm
         }
         #endregion
 
-        #region FileSystemWatcher Events
+        #region 监控事件
         /// <summary>
-        /// Renamed event handler for FileSystemWatcher.
+        /// 文件重命名
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
@@ -319,7 +384,7 @@ namespace AutoUpload.WinForm
         }
 
         /// <summary>
-        /// Changed event handler for FileSystemWatcher.
+        /// 文件发生修改
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
@@ -331,14 +396,15 @@ namespace AutoUpload.WinForm
         }
 
         /// <summary>
-        /// Updates the file record by checking the current files in the watch directory
+        /// 更新待处理文件列表到 pending.json 文件中。
         /// </summary>
         private void UpdateFileRecord()
         {
+            // 检查路径是否存在
             string watchPath = txtPath.Text;
             if (!Directory.Exists(watchPath)) return;
 
-            // Get all files in the watch directory with allowed extensions and matching file name rules
+            // 满足后缀名规则和文件名规则
             var currentFiles = Directory
                 .EnumerateFiles(watchPath)
                 .Where(f => allowedExtensions.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
@@ -346,7 +412,7 @@ namespace AutoUpload.WinForm
                 .Where(name => Regex.Match(name, @allowedFileNameRules).Success)
                 .ToList();
 
-            // Load uploaded file names (if not exists, it will be empty)
+            // 加载已上传的文件列表
             var uploadedFiles = new HashSet<string>();
             if (File.Exists(UploadTrackerPaths.UploadedPath))
             {
@@ -361,6 +427,7 @@ namespace AutoUpload.WinForm
                     log.Warn("uploaded.json 读取失败，已重置为空");
                 }
             }
+            // 如果不存在 uploaded.json 文件，则创建一个空的
             else
             {
                 uploadedFiles = new();
@@ -368,11 +435,11 @@ namespace AutoUpload.WinForm
                 log.Info("首次运行：已初始化 uploaded.json");
             }
 
-            // select files that are in the current directory but not in the uploaded set
+            // 筛选出待上传的文件
             var pendingFiles = currentFiles
                 .Where(name => !uploadedFiles.Contains(name))
                 .ToList();
-
+            
             var state = new UploadState
             {
                 AllFilesInFolder = currentFiles,
