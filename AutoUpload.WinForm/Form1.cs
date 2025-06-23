@@ -180,7 +180,8 @@ namespace AutoUpload.WinForm
             // 写入文件
             using var writeClient = new HttpClient();
             // 上传文件后拿到的响应
-            var responseModels = new List<FileStorageUploadParamResponseModel>();
+            List<MouldSizesCutterResponseModel> mouldSizesCutterResponseModels = new();
+            List<FileStorageUploadParamResponseModel> fileStorageUploadParamresponseModels = new();
             List<MouldSizesCutterPostResponseModel> mouldSizesCutterPostResponseModels = new();
 
             #endregion
@@ -245,7 +246,7 @@ namespace AutoUpload.WinForm
                     }
 
                     // get结果
-                    var queryData = JsonSerializer.Deserialize<FileStorageUploadParamResponseModel>(queryResult);
+                    var queryData = JsonSerializer.Deserialize<MouldSizesCutterResponseModel>(queryResult);
                     log.Info($"查询结束,正在处理...");
 
                     // 如果已有的型号规格中已经有了该编号文件,那就不上传了
@@ -287,7 +288,7 @@ namespace AutoUpload.WinForm
                         log.Info($"上传文件成功:{result}");
                         // 将result按照FileStorageUploadParamResponseModel读出来
                         var uploadResponse = JsonSerializer.Deserialize<FileStorageUploadParamResponseModel>(result);
-                        responseModels.Add(uploadResponse);
+                        fileStorageUploadParamresponseModels.Add(uploadResponse);
 
                         MouldSizesCutterPostResponseModel mouldSizesCutterPostResponseModel = new();
                         mouldSizesCutterPostResponseModel.containerNum = 0; // 默认值
@@ -316,7 +317,7 @@ namespace AutoUpload.WinForm
                 }
             }
 
-            foreach (var response in responseModels)
+            foreach (var response in fileStorageUploadParamresponseModels)
             {
                 try
                 {
