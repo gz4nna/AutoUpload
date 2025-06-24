@@ -355,8 +355,6 @@ namespace AutoUpload.WinForm
                     mouldSizeId = response.Value.Item2?.data.FirstOrDefault()?.mouldSizeId ?? 0,
                     seq = response.Value.Item2?.data.FirstOrDefault()?.seq ?? 0
                 }), new JsonSerializerOptions { WriteIndented = true });
-                               
-
                 log.Info($"{jsonContent}");
 
                 // 开始写入
@@ -390,7 +388,6 @@ namespace AutoUpload.WinForm
                 return;
             }            
         }
-
         #endregion
 
         #region 窗体事件
