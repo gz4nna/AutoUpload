@@ -1,11 +1,11 @@
+using AutoUpload.Models;
+using AutoUpload.Models.ResponseModels;
+using log4net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Timers;
-using AutoUpload.Models;
-using AutoUpload.Models.ResponseModels;
-
-using log4net;
+using System.Windows.Forms;
 
 namespace AutoUpload.WinForm
 {
@@ -173,17 +173,14 @@ namespace AutoUpload.WinForm
             // 构造待上传文件列表
             string watchPath = txtPath.Text;
             List<string> pendingFiles = new();
+            List<(string?, MouldSizesCutterResponseModel?, FileStorageUploadParamResponseModel?, MouldSizesCutterRequestModel?)?> 
+                responseInfos = new();
             // 查询刀模ID和型号规格是否存在
             using var queryClient = new HttpClient();
             // 上传文件
             using var sendClient = new HttpClient();
             // 写入文件
             using var writeClient = new HttpClient();
-            // 上传文件后拿到的响应
-            List<MouldSizesCutterResponseModel> mouldSizesCutterResponseModels = new();
-            List<FileStorageUploadParamResponseModel> fileStorageUploadParamresponseModels = new();
-            List<MouldSizesCutterPostResponseModel> mouldSizesCutterPostResponseModels = new();
-
             #endregion
 
             // 检查路径是否存在
@@ -201,8 +198,7 @@ namespace AutoUpload.WinForm
                         MessageBox.Show("没有待上传的文件");
                         return;
                     }
-                    pendingFiles = state.FilesToUpload.Select(x =>
-                        Path.Combine(watchPath, x)).ToList();
+                    pendingFiles = state.FilesToUpload.Select(file => Path.Combine(watchPath, file)).ToList();
                 }
                 catch (Exception ex)
                 {
@@ -218,6 +214,7 @@ namespace AutoUpload.WinForm
             queryClient.DefaultRequestHeaders.Add("X-User-Id", Properties.Settings.Default.XUserId);
             queryClient.DefaultRequestHeaders.Add("X-Timestamp", DateTime.Now.ToString());
 
+            // 检查本地的合法性以及服务器上的合法性
             foreach (var file in pendingFiles)
             {
                 // 检查文件是否存在
@@ -249,18 +246,30 @@ namespace AutoUpload.WinForm
                     var queryData = JsonSerializer.Deserialize<MouldSizesCutterResponseModel>(queryResult);
                     log.Info($"查询结束,正在处理...");
 
+                    // 型号已录入但是没有数据
+                    if(queryData.data.Count == 0)
+                    {
+                        //log.Warn($"该型号规格 {fileNameParts[0]} {fileNameParts[1]} 还没有数据,请先维护");
+                        //continue;
+                    }
                     // 如果已有的型号规格中已经有了该编号文件,那就不上传了
-                    if (queryData.data.Select(d => d.fileName.Split().Last()).Contains(fileNameParts[2]))
+                    else if (queryData.data.Select(d => d.fileName.Split().Last()).Contains(fileNameParts[2]))
                     {
                         log.Info($"文件 {file} 已经存在于型号规格中，跳过上传");
                         continue;
                     }
+                    // 如果是新的编号
+                    responseInfos.Add((file, queryData, null, null));
                 }
                 catch (Exception ex)
                 {
                     continue;
                 }
+            }
 
+            // 对合法文件进行上传
+            foreach(var file in responseInfos.Select(responses => responses?.Item1).ToList())
+            {
                 try
                 {
                     // 读取文件内容
@@ -284,29 +293,33 @@ namespace AutoUpload.WinForm
 
                     if (response.IsSuccessStatusCode)
                     {
-                        // MessageBox.Show($"Upload Completed{response}");
-                        log.Info($"上传文件成功:{result}");
                         // 将result按照FileStorageUploadParamResponseModel读出来
                         var uploadResponse = JsonSerializer.Deserialize<FileStorageUploadParamResponseModel>(result);
-                        fileStorageUploadParamresponseModels.Add(uploadResponse);
 
-                        MouldSizesCutterPostResponseModel mouldSizesCutterPostResponseModel = new();
-                        mouldSizesCutterPostResponseModel.containerNum = 0; // 默认值
-                        mouldSizesCutterPostResponseModel.cutterBlankSpec = ""; // 默认值
-                        mouldSizesCutterPostResponseModel.cutterType = 0; // 默认值
-                        mouldSizesCutterPostResponseModel.fileId = long.Parse(uploadResponse.data.First().fileId);
-                        mouldSizesCutterPostResponseModel.fileName = uploadResponse.data.First().fileName;
-                        mouldSizesCutterPostResponseModel.fileUrl = uploadResponse.data.First().fileUrl;
-                        mouldSizesCutterPostResponseModel.mouldSizeCutterId = 0; // 默认值
-                        mouldSizesCutterPostResponseModel.mouldSizeId = 0; // 默认值
-                        mouldSizesCutterPostResponseModel.seq = 0; // 默认值
+                        if (uploadResponse?.code == "00")
+                        {
+                            // MessageBox.Show($"Upload Completed{response}");
+                            log.Info($"上传文件成功:{result}");
+
+                            // 响应结果存下来
+                            responseInfos[responseInfos.IndexOf(responseInfos.First(response => response?.Item1 == file))] =
+                                (file, responseInfos.Last()?.Item2, uploadResponse, null);
+                        }
+                        else
+                        {
+                            // 如果上传失败,则从responseInfos中移除该文件
+                            responseInfos.Remove(responseInfos.First(response => response?.Item1 == file));
+
+                            MessageBox.Show($"Upload Failed:{response.StatusCode}\n{result}");
+                            log.Warn($"Upload Failed:{result}");
+                        }
                     }
                     else
                     {
+                        // 如果上传失败,则从responseInfos中移除该文件
+                        responseInfos.Remove(responseInfos.First(response => response?.Item1 == file));
+
                         MessageBox.Show($"Upload Failed:{response.StatusCode}\n{result}");
-#if DEBUG
-                        Clipboard.SetText(result);
-#endif
                         log.Warn($"Upload Failed:{result}");
                     }
                 }
@@ -316,34 +329,66 @@ namespace AutoUpload.WinForm
                     log.Error("上传异常", ex);
                 }
             }
-
-            foreach (var response in fileStorageUploadParamresponseModels)
-            {
-                try
+            
+            try
+            {                
+                if (responseInfos.Count == 0)
                 {
-                    
+                    log.Info($"没有上传成功的文件!跳过写入!");
+                    MessageBox.Show("没有上传成功的文件，跳过写入\n请检查日志报错...");
+                    return;
                 }
-                catch (Exception ex)
+                // 调用写入接口                
+                writeClient.DefaultRequestHeaders.Add("X-Tenant-Id", Properties.Settings.Default.XTenantId);
+                writeClient.DefaultRequestHeaders.Add("X-Trace-Id", Properties.Settings.Default.XTraceId);
+                writeClient.DefaultRequestHeaders.Add("X-User-Id", Properties.Settings.Default.XUserId);
+                
+                var jsonContent = JsonSerializer.Serialize(responseInfos.Select(response => new MouldSizesCutterRequestModel()
                 {
+                    containerNum = response.Value.Item2?.data.FirstOrDefault()?.containerNum ?? 0,
+                    cutterBlankSpec = (response.Value.Item2?.data.FirstOrDefault()?.cutterBlankSpec ?? 0).ToString(),
+                    cutterType = response.Value.Item2?.data.FirstOrDefault()?.cutterType ?? 0,
+                    fileId = long.Parse(response.Value.Item3?.data.FirstOrDefault()?.fileId ?? "0"),
+                    fileName = response.Value.Item3?.data.FirstOrDefault()?.fileName ?? string.Empty,
+                    fileUrl = response.Value.Item3?.data.FirstOrDefault()?.fileUrl ?? string.Empty,
+                    mouldSizeCutterId = response.Value.Item2?.data.FirstOrDefault()?.mouldSizeCutterId ?? 0,
+                    mouldSizeId = response.Value.Item2?.data.FirstOrDefault()?.mouldSizeId ?? 0,
+                    seq = response.Value.Item2?.data.FirstOrDefault()?.seq ?? 0
+                }), new JsonSerializerOptions { WriteIndented = true });
+                               
 
+                log.Info($"{jsonContent}");
+
+                // 开始写入
+                HttpContent httpContent = new StringContent(jsonContent);
+                httpContent.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("application/json");
+                var response = await writeClient.PostAsync(writeURL, httpContent);
+                var result = await response.Content.ReadAsStringAsync();
+
+                // 成功
+                if (response.IsSuccessStatusCode)
+                {
+                    log.Info($"写入数据成功: {result}");
+                    MessageBox.Show("写入数据成功");
                 }
+                else
+                {
+                    MessageBox.Show($"写入数据失败: {response.StatusCode}\n{result}");
+                    log.Warn($"写入数据失败: {result}");
+                }
+
+                // 更新 uploaded.json 文件
+
+                // 失败
+
+                // 结束
             }
-
-            // 调用写入接口                
-            writeClient.DefaultRequestHeaders.Add("X-Tenant-Id", Properties.Settings.Default.XTenantId);
-            writeClient.DefaultRequestHeaders.Add("X-Trace-Id", Properties.Settings.Default.XTraceId);
-            writeClient.DefaultRequestHeaders.Add("X-User-Id", Properties.Settings.Default.XUserId);
-            writeClient.DefaultRequestHeaders.Add("X-User-Name", Properties.Settings.Default.XUserName);
-
-            // 开始写入
-
-            // 成功
-
-            // 更新 uploaded.json 文件
-
-            // 失败
-
-            // 结束
+            catch (Exception ex)
+            {
+                log.Error("处理上传结果时发生错误", ex);
+                MessageBox.Show("处理上传结果时发生错误：" + ex.Message);
+                return;
+            }            
         }
 
         #endregion
