@@ -366,16 +366,55 @@ namespace AutoUpload.WinForm
                 // 成功
                 if (response.IsSuccessStatusCode)
                 {
-                    log.Info($"写入数据成功: {result}");
-                    MessageBox.Show("写入数据成功");
+                    var writeResponse = JsonSerializer.Deserialize<MouldSizesCutterPostResponseModel>(result);
+                    if (writeResponse?.code == "00")
+                    {
+                        log.Info($"写入数据成功: {result}");
+                        MessageBox.Show("写入数据成功");
+                    }
+                    else
+                    {
+                        MessageBox.Show($"写入数据失败: {response.StatusCode}\n{result}");
+                        log.Warn($"写入数据失败: {result}");
+                        return;
+                    }
                 }
                 else
                 {
                     MessageBox.Show($"写入数据失败: {response.StatusCode}\n{result}");
                     log.Warn($"写入数据失败: {result}");
+                    return;
                 }
 
+                // 这里只有成功会执行
                 // 更新 uploaded.json 文件
+                // 将 responseInfos 中的文件名添加到 uploaded.json 中
+                var uploadedFiles = new HashSet<string>();
+                if (File.Exists(UploadTrackerPaths.UploadedPath))
+                {
+                    try
+                    {
+                        var uploadedJson = File.ReadAllText(UploadTrackerPaths.UploadedPath);
+                        uploadedFiles = JsonSerializer.Deserialize<HashSet<string>>(uploadedJson) ?? new();
+                    }
+                    catch
+                    {
+                        uploadedFiles = new();
+                        log.Warn("uploaded.json 读取失败，已重置为空");
+                    }
+                }
+                else
+                {
+                    uploadedFiles = new();
+                }
+                // 如果不存在 uploaded.json 文件，则创建一个空的
+                foreach (var fileName in responseInfos.Select(response=>response?.Item1).ToList())
+                {
+                    if(fileName == null) continue; // 跳过空文件名
+                    uploadedFiles.Add(fileName);
+                }
+                File.WriteAllText(UploadTrackerPaths.UploadedPath, JsonSerializer.Serialize(uploadedFiles, new JsonSerializerOptions { WriteIndented = true }));
+                log.Info($"更新 uploaded.json 文件成功，已添加 {uploadedFiles.Count} 个文件名");
 
                 // 失败
 

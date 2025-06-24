@@ -6,16 +6,11 @@ using System.Threading.Tasks;
 
 namespace AutoUpload.Models.ResponseModels;
 
-public class MouldSizesCutterRequestModel
+public class MouldSizesCutterPostResponseModel
 {
-    public int? containerNum { get; set; } = 0;
-    public string? cutterBlankSpec { get; set; } = string.Empty;
-    public int? cutterType { get; set; } = 0;
-    public long fileId { get; set; } = 0;
-    public string fileName { get; set; } = string.Empty;
-    public string fileUrl { get; set; } = string.Empty;
-    public long? mouldSizeCutterId { get; set; } = 0;
-    public long? mouldSizeId { get; set; } = 0;
-    public int? seq { get; set; } = 0;
-
+    public string code { get; set; } = string.Empty;
+    public bool data { get; set; } = default;
+    public string error { get; set; } = string.Empty;
+    public string message { get; set; } = string.Empty;
+    public string timestamp { get; set; } = string.Empty;
 }
