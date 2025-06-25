@@ -6,13 +6,13 @@
       <Value Profile="(Default)" />
     </Setting>
     <Setting Name="TargetURL" Type="System.String" Scope="User">
-      <Value Profile="(Default)">http://10.101.16.30:32767/dp-oss/api/v1/file-storages/upload/param</Value>
+      <Value Profile="(Default)">http://10.101.12.30:32516/dp-oss/api/v1/file-storages/upload</Value>
     </Setting>
     <Setting Name="AllowedExtensions" Type="System.String" Scope="User">
-      <Value Profile="(Default)">.dxf|.dwg</Value>
+      <Value Profile="(Default)">.dwg</Value>
     </Setting>
     <Setting Name="AllowedFileNameRules" Type="System.String" Scope="User">
-      <Value Profile="(Default)">^([a-zA-Z0-9]+)\s([a-zA-Z0-9]+)\s\d.(dxf|dwg)</Value>
+      <Value Profile="(Default)">^([a-zA-Z0-9]+)\s([a-zA-Z0-9]+)\s\d.(dwg)</Value>
     </Setting>
     <Setting Name="XTenantId" Type="System.String" Scope="User">
       <Value Profile="(Default)">1627160160700962818</Value>
@@ -27,7 +27,7 @@
       <Value Profile="(Default)">aa</Value>
     </Setting>
     <Setting Name="WriteURL" Type="System.String" Scope="User">
-      <Value Profile="(Default)">http://10.101.16.30:32767/dp-mould/api/v1/mould-sizes/cutter</Value>
+      <Value Profile="(Default)">http://10.101.12.30:32516/dp-mould/api/v1/mould-sizes/cutter</Value>
     </Setting>
   </Settings>
 </SettingsFile>

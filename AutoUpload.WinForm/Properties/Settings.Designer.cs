@@ -37,7 +37,7 @@ namespace AutoUpload.WinForm.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("http://10.101.16.30:32767/dp-oss/api/v1/file-storages/upload/param")]
+        [global::System.Configuration.DefaultSettingValueAttribute("http://10.101.12.30:32516/dp-oss/api/v1/file-storages/upload")]
         public string TargetURL {
             get {
                 return ((string)(this["TargetURL"]));
@@ -49,7 +49,7 @@ namespace AutoUpload.WinForm.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute(".dxf|.dwg")]
+        [global::System.Configuration.DefaultSettingValueAttribute(".dwg")]
         public string AllowedExtensions {
             get {
                 return ((string)(this["AllowedExtensions"]));
@@ -61,7 +61,7 @@ namespace AutoUpload.WinForm.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("^([a-zA-Z0-9]+)\\s([a-zA-Z0-9]+)\\s\\d.(dxf|dwg)")]
+        [global::System.Configuration.DefaultSettingValueAttribute("^([a-zA-Z0-9]+)\\s([a-zA-Z0-9]+)\\s\\d.(dwg)")]
         public string AllowedFileNameRules {
             get {
                 return ((string)(this["AllowedFileNameRules"]));
@@ -121,7 +121,7 @@ namespace AutoUpload.WinForm.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("http://10.101.16.30:32767/dp-mould/api/v1/mould-sizes/cutter")]
+        [global::System.Configuration.DefaultSettingValueAttribute("http://10.101.12.30:32516/dp-mould/api/v1/mould-sizes/cutter")]
         public string WriteURL {
             get {
                 return ((string)(this["WriteURL"]));
