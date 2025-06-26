@@ -1,4 +1,5 @@
 using AutoUpload.Models;
+using AutoUpload.Models.JsonModels;
 using AutoUpload.Models.ResponseModels;
 using log4net;
 using System.Net.Http.Json;
@@ -337,39 +338,61 @@ namespace AutoUpload.WinForm
                 .ToList();
 
             // 加载已上传的文件列表
-            var uploadedFiles = new HashSet<string>();
+            var uploadedFiles = new List<UploadJsonModel>();
             if (File.Exists(UploadTrackerPaths.UploadedPath))
             {
                 try
                 {
                     var uploadedJson = File.ReadAllText(UploadTrackerPaths.UploadedPath);
-                    uploadedFiles = JsonSerializer.Deserialize<HashSet<string>>(uploadedJson) ?? new();
+                    uploadedFiles = JsonSerializer.Deserialize<List<UploadJsonModel>>(uploadedJson) ?? new();
                 }
                 catch
                 {
-                    uploadedFiles = new();
                     log.Warn("uploaded.json 读取失败，已重置为空");
                 }
             }
             // 如果不存在 uploaded.json 文件，则创建一个空的
             else
             {
-                uploadedFiles = new();
                 File.WriteAllText(UploadTrackerPaths.UploadedPath, JsonSerializer.Serialize(uploadedFiles, new JsonSerializerOptions { WriteIndented = true }));
                 log.Info("首次运行：已初始化 uploaded.json");
             }
 
             // 在列表框中显示已上传文件列表
-            listBoxUploadComplete.DataSource = uploadedFiles.ToList();
+            if (listBoxUploadComplete.InvokeRequired)
+            {
+                listBoxUploadComplete.Invoke(new Action(() => listBoxUploadComplete.Items.Clear()));
+                uploadedFiles
+                .GroupBy(file=>file.uploadTime).Last().ToList()
+                .ForEach(
+                    file => listBoxPendingUpload.Invoke(
+                        new Action(() => listBoxPendingUpload.Items.Add(file.fileName))
+                    )
+                );
+            }
+            else
+            {
+                listBoxUploadComplete.Items.Clear();
+                uploadedFiles.ForEach(file => listBoxUploadComplete.Items.Add(file.fileName));
+            }
 
             // 筛选出待上传的文件
             var pendingFiles = currentFiles
-                .Where(name => !uploadedFiles.Contains(name))
+                .Where(name => !uploadedFiles.All(file => file.fileName.Contains(name)))
                 .ToList();
 
+            if (listBoxPendingUpload.InvokeRequired)
+            {
+                listBoxPendingUpload.Invoke(new Action(() => listBoxPendingUpload.Items.Clear()));
+                pendingFiles.ForEach(file => listBoxPendingUpload.Invoke(new Action(()=>listBoxPendingUpload.Items.Add(file))));
+            }
+            else
+            {
+                listBoxPendingUpload.Items.Clear();
+                pendingFiles.ForEach(file => listBoxPendingUpload.Items.Add(file));
+            }
             // 在列表框中显示待上传文件列表
-            listBoxPendingUpload.DataSource = pendingFiles;
-
+            
             // 写入 pending.json 文件
             var state = new UploadState
             {
@@ -379,26 +402,7 @@ namespace AutoUpload.WinForm
             var pendingJson = JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(UploadTrackerPaths.PendingPath, pendingJson);
 
-            log.Info($"监控更新：总文件 {currentFiles.Count} 个，待上传 {pendingFiles.Count} 个");
-
-            // 确保在同一线程内刷新列表框
-            if (listBoxPendingUpload.InvokeRequired)
-            {
-                listBoxPendingUpload.Invoke(new Action(() => listBoxPendingUpload.DataSource = pendingFiles));
-            }
-            else
-            {
-                listBoxPendingUpload.DataSource = pendingFiles;
-            }
-            // 确保在同一线程内刷新已上传列表框
-            if (listBoxUploadComplete.InvokeRequired)
-            {
-                listBoxUploadComplete.Invoke(new Action(() => listBoxUploadComplete.DataSource = uploadedFiles.ToList()));
-            }
-            else
-            {
-                listBoxUploadComplete.DataSource = uploadedFiles.ToList();
-            }
+            log.Info($"监控更新：总文件 {currentFiles.Count} 个，待上传 {pendingFiles.Count} 个");            
         }
         #endregion
 
@@ -596,13 +600,13 @@ namespace AutoUpload.WinForm
                 // 这里只有成功会执行
                 // 更新 uploaded.json 文件
                 // 将 responseInfos 中的文件名添加到 uploaded.json 中
-                var uploadedFiles = new HashSet<string>();
+                var uploadedFiles = new List<UploadJsonModel>();
                 if (File.Exists(UploadTrackerPaths.UploadedPath))
                 {
                     try
                     {
                         var uploadedJson = File.ReadAllText(UploadTrackerPaths.UploadedPath);
-                        uploadedFiles = JsonSerializer.Deserialize<HashSet<string>>(uploadedJson);
+                        uploadedFiles = JsonSerializer.Deserialize<List<UploadJsonModel>>(uploadedJson);
                     }
                     catch
                     {
@@ -611,7 +615,32 @@ namespace AutoUpload.WinForm
                 }
 
                 // 文件名为空的情况不可能出现
-                responseInfos.ForEach(response => uploadedFiles?.Add(Path.GetFileName(response?.Item1) ?? ""));
+                responseInfos.ForEach(
+                    response => uploadedFiles?.Add(
+                        new() { 
+                            fileName = Path.GetFileName(response?.Item1) ?? "", 
+                            uploadTime = response?.Item3?.timestamp ?? DateTime.Now.ToString() 
+                        }
+                    )
+                );
+
+                // 在列表框中显示已上传文件列表
+                if (listBoxUploadComplete.InvokeRequired)
+                {
+                    listBoxUploadComplete.Invoke(new Action(() => listBoxUploadComplete.Items.Clear()));
+                    responseInfos.ForEach(
+                        file => listBoxPendingUpload.Invoke(
+                            new Action(() => listBoxPendingUpload.Items.Add(file?.Item1 ?? string.Empty))
+                        )
+                    );
+                }
+                else
+                {
+                    listBoxUploadComplete.Items.Clear();
+                    responseInfos.ForEach(
+                        file => listBoxPendingUpload.Items.Add(file?.Item1 ?? string.Empty)                        
+                    );
+                }
 
                 File.WriteAllText(UploadTrackerPaths.UploadedPath, JsonSerializer.Serialize(uploadedFiles, new JsonSerializerOptions { WriteIndented = true }));
                 log.Info($"更新 uploaded.json 文件成功，已添加 {uploadedFiles?.Count} 个文件名");
