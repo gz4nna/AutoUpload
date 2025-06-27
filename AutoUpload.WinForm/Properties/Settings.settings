@@ -3,7 +3,7 @@
   <Profiles />
   <Settings>
     <Setting Name="LastPath" Type="System.String" Scope="User">
-      <Value Profile="(Default)" />
+      <Value Profile="(Default)">C:\</Value>
     </Setting>
     <Setting Name="TargetURL" Type="System.String" Scope="User">
       <Value Profile="(Default)">http://10.101.12.30:32516/dp-oss/api/v1/file-storages/upload</Value>

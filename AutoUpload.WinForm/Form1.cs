@@ -2,11 +2,8 @@ using AutoUpload.Models;
 using AutoUpload.Models.JsonModels;
 using AutoUpload.Models.ResponseModels;
 using log4net;
-using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Timers;
-using System.Windows.Forms;
 
 namespace AutoUpload.WinForm
 {
@@ -125,6 +122,55 @@ namespace AutoUpload.WinForm
                 this.menuShow.Click += (s, e) => ShowMainWindow();
                 this.menuExit.Click += (s, e) => Application.Exit();
                 log.Info($"初始化控件完成!");
+
+                // 在当前目录下创建一个upload文件夹
+                if (!Directory.Exists(UploadTrackerPaths.UploadFolder))
+                {
+                    Directory.CreateDirectory(UploadTrackerPaths.UploadFolder);
+                    log.Info($"创建上传文件夹: {UploadTrackerPaths.UploadFolder}");
+                }
+                // 加载已上传的文件列表
+                var uploadedFiles = new HashSet<UploadJsonModel>();
+
+                // 在文件夹中读取全部上传文件
+                if (File.Exists(UploadTrackerPaths.UploadFolder))
+                {
+                    try
+                    {
+                        // 每个文件
+                        foreach (var file in Directory.EnumerateFiles(UploadTrackerPaths.UploadFolder))
+                        {
+                            var uploadedJson = File.ReadAllText(file);
+                            var tmpfile = JsonSerializer.Deserialize<List<UploadJsonModel>>(uploadedJson);
+                            // 只要不是空
+                            if (tmpfile == null || tmpfile.Count == 0) continue;
+                            // 塞到上传文件列表中
+                            tmpfile.ForEach(fileName => uploadedFiles.Add(fileName));
+                        }
+
+                        if (listBoxUploadComplete.InvokeRequired)
+                        {
+                            listBoxUploadComplete.Invoke(new Action(() => listBoxUploadComplete.Items.Clear()));
+                            uploadedFiles
+                            ?.GroupBy(file => file.uploadTime)?.Last()?.ToList()
+                            ?.ForEach(
+                                file => listBoxPendingUpload.Invoke(
+                                    new Action(() => listBoxPendingUpload.Items.Add(file.fileName))
+                                )
+                            );
+                        }
+                        else
+                        {
+                            listBoxUploadComplete.Items.Clear();
+                            uploadedFiles?.ToList()?.ForEach(file => listBoxUploadComplete.Items.Add(file.fileName));
+                        }
+                    }
+                    catch
+                    {
+                        log.Warn("uploaded.json 读取失败，已重置为空");
+                        labelUploadHintPrint("uploaded.json 读取失败，已重置为空");
+                    }
+                }
                 #endregion
             }
             catch (Exception ex)
@@ -162,7 +208,7 @@ namespace AutoUpload.WinForm
             watcher.Renamed += OnRenamed;
 
             watcher.EnableRaisingEvents = true;
-            UpdateFileRecord();
+            // UpdateFileRecord();
         }
         #endregion
 
@@ -233,7 +279,8 @@ namespace AutoUpload.WinForm
                     if (state == null || state.FilesToUpload.Count == 0)
                     {
                         log.Warn("没有待上传的文件，跳过上传");
-                        MessageBox.Show("没有待上传的文件");
+                        //MessageBox.Show("没有待上传的文件");
+                        labelUploadHintPrint("没有待上传的文件");
                         return;
                     }
 
@@ -244,7 +291,11 @@ namespace AutoUpload.WinForm
                 }
                 catch (Exception ex)
                 {
+#if DEBUG
                     MessageBox.Show("读取待上传文件列表失败：" + ex.Message);
+#elif RELEASE
+                    labelUploadHintPrint("读取待上传文件列表失败");
+#endif
                     log.Error("读取待上传文件列表失败", ex);
                     // 换页
                     this.tabControl.SelectedTab = this.tabPageUpload;
@@ -254,8 +305,14 @@ namespace AutoUpload.WinForm
 #if DEBUG
             //return;
 #endif
-            await Upload();
-        }        
+            await UploadPre();
+        }
+
+        /// <summary>
+        /// 上传前的预处理方法，调用 Upload 方法进行文件上传操作。
+        /// </summary>
+        /// <returns></returns>
+        private async Task UploadPre() => await Upload();
 
         /// <summary>
         /// 退出按钮点击事件处理，关闭应用程序。
@@ -305,7 +362,7 @@ namespace AutoUpload.WinForm
         private void OnRenamed(object sender, RenamedEventArgs e)
         {
             log.Info($"[FileRenamed] {e.ChangeType}: {e.FullPath}");
-            UpdateFileRecord();
+            UpdateFileRecord(e.FullPath);
         }
 
         /// <summary>
@@ -317,82 +374,57 @@ namespace AutoUpload.WinForm
         {
             log.Info($"[FileChanged] {e.ChangeType}: {e.FullPath}");
             // MessageBox.Show($"[FileChanged] {e.ChangeType}: {e.FullPath}");
-            UpdateFileRecord();
+            UpdateFileRecord(e.FullPath);
         }
 
         /// <summary>
-        /// 更新待处理文件列表到 pending.json 文件中。
+        /// 更新文件记录方法，处理文件变化事件并更新待上传文件列表。
         /// </summary>
-        private void UpdateFileRecord()
+        /// <param name="changedFilePath"></param>
+        private async void UpdateFileRecord(string changedFilePath = "")
         {
             // 检查路径是否存在
-            string watchPath = txtPath.Text;
-            if (!Directory.Exists(watchPath)) return;
-
-            // 满足后缀名规则和文件名规则
-            var currentFiles = Directory
-                .EnumerateFiles(watchPath)
-                .Where(f => allowedExtensions?.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase) ?? false)
-                .Select(f => Path.GetFileName(f))
-                .Where(name => Regex.Match(name, @allowedFileNameRules).Success)
+            string watchPath = txtPath.Text;            
+            var currentFiles = Directory.EnumerateFiles(watchPath)
+                .Select(file=> Path.GetFileName(file))
+                .Where(file=> allowedExtensions?
+                    .Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase) ?? false &&
+                    Regex.Match(Path.GetFileName(file), @allowedFileNameRules).Success)
                 .ToList();
+            // 先放入已有待上传
+            pendingFiles = JsonSerializer.Deserialize<UploadState>
+                (File.ReadAllText(UploadTrackerPaths.PendingPath))?.FilesToUpload
+                .Where(file=>currentFiles.Contains(file))
+                .ToList() ?? new();
 
-            // 加载已上传的文件列表
-            var uploadedFiles = new List<UploadJsonModel>();
-            if (File.Exists(UploadTrackerPaths.UploadedPath))
+            if (watchPath.Length > 0)
             {
-                try
-                {
-                    var uploadedJson = File.ReadAllText(UploadTrackerPaths.UploadedPath);
-                    uploadedFiles = JsonSerializer.Deserialize<List<UploadJsonModel>>(uploadedJson) ?? new();
-                }
-                catch
-                {
-                    log.Warn("uploaded.json 读取失败，已重置为空");
-                }
-            }
-            // 如果不存在 uploaded.json 文件，则创建一个空的
-            else
-            {
-                File.WriteAllText(UploadTrackerPaths.UploadedPath, JsonSerializer.Serialize(uploadedFiles, new JsonSerializerOptions { WriteIndented = true }));
-                log.Info("首次运行：已初始化 uploaded.json");
+                if (!File.Exists(changedFilePath)) return;
+                if (allowedExtensions?
+                    .Contains(Path.GetExtension(changedFilePath), StringComparer.OrdinalIgnoreCase) ?? false &&
+                    Regex.Match(Path.GetFileName(changedFilePath), @allowedFileNameRules).Success)
+                    // 如果文件名符合规则
+                    pendingFiles.Add(Path.GetFileName(changedFilePath));
             }
 
-            // 在列表框中显示已上传文件列表
-            if (listBoxUploadComplete.InvokeRequired)
+            // 在列表框中显示待上传文件列表
+            if (listBoxPendingUpload.InvokeRequired)
             {
-                listBoxUploadComplete.Invoke(new Action(() => listBoxUploadComplete.Items.Clear()));
-                uploadedFiles
-                .GroupBy(file=>file.uploadTime).Last().ToList()
-                .ForEach(
+                listBoxPendingUpload.Invoke(new Action(() => listBoxPendingUpload.Items.Clear()));
+                pendingFiles.ForEach(
                     file => listBoxPendingUpload.Invoke(
-                        new Action(() => listBoxPendingUpload.Items.Add(file.fileName))
+                        new Action(() => listBoxPendingUpload.Items.Add(file))
                     )
                 );
             }
             else
             {
-                listBoxUploadComplete.Items.Clear();
-                uploadedFiles.ForEach(file => listBoxUploadComplete.Items.Add(file.fileName));
-            }
-
-            // 筛选出待上传的文件
-            var pendingFiles = currentFiles
-                .Where(name => !uploadedFiles.All(file => file.fileName.Contains(name)))
-                .ToList();
-
-            if (listBoxPendingUpload.InvokeRequired)
-            {
-                listBoxPendingUpload.Invoke(new Action(() => listBoxPendingUpload.Items.Clear()));
-                pendingFiles.ForEach(file => listBoxPendingUpload.Invoke(new Action(()=>listBoxPendingUpload.Items.Add(file))));
-            }
-            else
-            {
                 listBoxPendingUpload.Items.Clear();
-                pendingFiles.ForEach(file => listBoxPendingUpload.Items.Add(file));
+                pendingFiles.ForEach(
+                    file => listBoxPendingUpload.Items.Add(file)
+                );
             }
-            // 在列表框中显示待上传文件列表
-            
+
             // 写入 pending.json 文件
             var state = new UploadState
             {
@@ -402,7 +434,8 @@ namespace AutoUpload.WinForm
             var pendingJson = JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(UploadTrackerPaths.PendingPath, pendingJson);
 
-            log.Info($"监控更新：总文件 {currentFiles.Count} 个，待上传 {pendingFiles.Count} 个");            
+            log.Info($"监控更新：总文件 {currentFiles.Count} 个，待上传 {pendingFiles.Count} 个");
+            await UploadPre();
         }
         #endregion
 
@@ -415,7 +448,7 @@ namespace AutoUpload.WinForm
         {
             #region 变量
             // 构造待上传文件列表
-            string watchPath = txtPath.Text;            
+            string watchPath = txtPath.Text;
             List<(string?, MouldSizesCutterResponseModel?, FileStorageUploadParamResponseModel?, MouldSizesCutterRequestModel?)?>
                 responseInfos = new();
             // 查询刀模ID和型号规格是否存在
@@ -436,7 +469,7 @@ namespace AutoUpload.WinForm
             foreach (var file in pendingFiles)
             {
                 // 检查文件是否存在
-                if (!File.Exists(file))
+                if (!File.Exists(Path.Combine(watchPath, file)))
                 {
                     log.Warn($"文件 {file} 不存在，跳过上传");
                     continue;
@@ -454,8 +487,9 @@ namespace AutoUpload.WinForm
                     var queryResult = await queryResponse.Content.ReadAsStringAsync();
                     if (!queryResponse.IsSuccessStatusCode)
                     {
-                        MessageBox.Show($"查询失败：{queryResponse.StatusCode}\n{queryResult}");
-                        log.Warn($"查询失败：{queryResult}");
+                        //MessageBox.Show($"查询失败：{queryResponse.StatusCode}\n{queryResult}");
+                        labelUploadHintPrint($"查询失败: {queryResponse.StatusCode}");
+                        log.Warn($"查询失败：{queryResponse.StatusCode}\n{queryResult}");
                         continue;
                     }
 
@@ -479,8 +513,6 @@ namespace AutoUpload.WinForm
                 }
             }
 
-            //return;
-
             // 对合法文件进行上传
             foreach (var file in responseInfos.Select(responses => responses?.Item1).ToList())
             {
@@ -488,7 +520,7 @@ namespace AutoUpload.WinForm
                 {
                     // 读取文件内容
                     log.Info($"读取文件内容...");
-                    var fileContent = new ByteArrayContent(File.ReadAllBytes(file));
+                    var fileContent = new ByteArrayContent(File.ReadAllBytes(Path.Combine(watchPath, file)));
                     log.Info($"读取文件内容完成，文件大小: {fileContent.Headers.ContentLength} 字节");
 
                     // 设置请求头
@@ -510,7 +542,7 @@ namespace AutoUpload.WinForm
                     {
                         // 将result按照FileStorageUploadParamResponseModel读出来
                         var uploadResponse = JsonSerializer.Deserialize<FileStorageUploadParamResponseModel>(result);
-
+                        log.Info($"上传文件结果:{response}{result}");
                         if (uploadResponse?.code == "00")
                         {
                             log.Info($"上传文件成功:{result}");
@@ -523,7 +555,8 @@ namespace AutoUpload.WinForm
                             // 如果上传失败,则从responseInfos中移除该文件
                             responseInfos.Remove(responseInfos.First(response => response?.Item1 == file));
 
-                            MessageBox.Show($"上传文件失败:{response.StatusCode}\n{result}");
+                            //MessageBox.Show($"上传文件失败:{response.StatusCode}\n{result}");
+                            labelUploadHintPrint($"上传文件失败: {response.StatusCode}");
                             log.Warn($"上传文件失败:{result}");
                         }
                     }
@@ -532,13 +565,15 @@ namespace AutoUpload.WinForm
                         // 如果上传失败,则从responseInfos中移除该文件
                         responseInfos.Remove(responseInfos.First(response => response?.Item1 == file));
 
-                        MessageBox.Show($"上传文件失败:{response.StatusCode}\n{result}");
+                        //MessageBox.Show($"上传文件失败:{response.StatusCode}\n{result}");
+                        labelUploadHintPrint($"上传文件失败: {response.StatusCode}");
                         log.Warn($"上传文件失败:{result}");
                     }
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show("上传出错：" + ex.Message);
+                    //MessageBox.Show("上传出错：" + ex.Message);
+                    labelUploadHintPrint("上传异常");
                     log.Error("上传异常", ex);
                 }
             }
@@ -549,7 +584,8 @@ namespace AutoUpload.WinForm
                 if (responseInfos.Count == 0)
                 {
                     log.Info($"没有上传成功的文件!跳过写入!");
-                    MessageBox.Show("没有上传成功的文件，跳过写入\n请检查日志报错...");
+                    //MessageBox.Show("没有上传成功的文件，跳过写入\n请检查日志报错...");
+                    labelUploadHintPrint("没有上传成功的文件，跳过写入\n请检查日志报错...");
                     return;
                 }
                 // 调用写入接口                
@@ -585,14 +621,16 @@ namespace AutoUpload.WinForm
                     if (writeResponse?.code == "00") log.Info($"写入数据成功: {result}");
                     else
                     {
-                        MessageBox.Show($"写入数据失败: {response.StatusCode}\n{result}");
-                        log.Warn($"写入数据失败: {result}");
+                        //MessageBox.Show($"写入数据失败: {response.StatusCode}\n{result}");
+                        labelUploadHintPrint($"写入数据失败: {response.StatusCode}");
+                        log.Warn($"写入数据失败: {response.StatusCode}\n{result}");
                         return;
                     }
                 }
                 else
                 {
-                    MessageBox.Show($"写入数据失败: {response.StatusCode}\n{result}");
+                    //MessageBox.Show($"写入数据失败: {response.StatusCode}\n{result}");
+                    labelUploadHintPrint($"写入数据失败: {response.StatusCode}");
                     log.Warn($"写入数据失败: {result}");
                     return;
                 }
@@ -617,40 +655,74 @@ namespace AutoUpload.WinForm
                 // 文件名为空的情况不可能出现
                 responseInfos.ForEach(
                     response => uploadedFiles?.Add(
-                        new() { 
-                            fileName = Path.GetFileName(response?.Item1) ?? "", 
-                            uploadTime = response?.Item3?.timestamp ?? DateTime.Now.ToString() 
+                        new()
+                        {
+                            fileName = Path.GetFileName(response?.Item1) ?? "",
+                            uploadTime = response?.Item3?.timestamp ?? DateTime.Now.ToString()
                         }
                     )
                 );
 
-                // 在列表框中显示已上传文件列表
-                if (listBoxUploadComplete.InvokeRequired)
+                // 上传成功的文件添加到上传成功列表里面
+                if (listBoxUploadComplete.Items.Count != 0)
                 {
-                    listBoxUploadComplete.Invoke(new Action(() => listBoxUploadComplete.Items.Clear()));
-                    responseInfos.ForEach(
-                        file => listBoxPendingUpload.Invoke(
-                            new Action(() => listBoxPendingUpload.Items.Add(file?.Item1 ?? string.Empty))
+                    // 在列表框中显示已上传文件列表
+                    if (listBoxUploadComplete.InvokeRequired)
+                    {
+                        // 以前的也不要删掉
+                        //listBoxUploadComplete.Invoke(new Action(() => listBoxUploadComplete.Items.Clear()));
+                        responseInfos.ForEach(
+                            file => listBoxUploadComplete.Invoke(
+                                new Action(() => listBoxUploadComplete.Items.Add(Path.GetFileName(file?.Item1) ?? string.Empty))
+                            )
+                        );
+                    }
+                    else
+                    {
+                        // 以前的也不要删掉
+                        //listBoxUploadComplete.Items.Clear();
+                        responseInfos.ForEach(
+                            file => listBoxUploadComplete.Items.Add(Path.GetFileName(file?.Item1) ?? string.Empty)
+                        );
+                    }
+                }
+
+                // 在列表框中删除已上传文件列表
+                if (listBoxPendingUpload.InvokeRequired)
+                {
+                    responseInfos
+                        .Where(file => file?.Item1 != null).ToList()
+                        .ForEach(file => listBoxPendingUpload.Invoke(
+                            new Action(() => listBoxPendingUpload.Items.Remove(Path.GetFileName(file?.Item1)))
                         )
                     );
                 }
                 else
                 {
-                    listBoxUploadComplete.Items.Clear();
-                    responseInfos.ForEach(
-                        file => listBoxPendingUpload.Items.Add(file?.Item1 ?? string.Empty)                        
+                    responseInfos
+                        .Where(file => file?.Item1 != null).ToList()
+                        .ForEach(file => listBoxPendingUpload.Items.Remove(Path.GetFileName(file?.Item1))
                     );
                 }
-
+                
                 File.WriteAllText(UploadTrackerPaths.UploadedPath, JsonSerializer.Serialize(uploadedFiles, new JsonSerializerOptions { WriteIndented = true }));
                 log.Info($"更新 uploaded.json 文件成功，已添加 {uploadedFiles?.Count} 个文件名");
+                labelUploadHintPrint($"上传成功，已添加 {uploadedFiles?.Count} 个文件,{listBoxPendingUpload.Items.Count}个上传失败");
             }
             catch (Exception ex)
             {
                 log.Error("处理上传结果时发生错误", ex);
-                MessageBox.Show("处理上传结果时发生错误：" + ex.Message);
+                //MessageBox.Show("处理上传结果时发生错误：" + ex.Message);
+                labelUploadHintPrint("处理上传结果时发生错误");
+
                 return;
             }
+        }
+
+        private void labelUploadHintPrint(string hint)
+        {
+            if (labelUploadHint.InvokeRequired) labelUploadHint.Invoke(new Action(() => labelUploadHint.Text = hint));
+            else labelUploadHint.Text = hint;
         }
         #endregion
     }

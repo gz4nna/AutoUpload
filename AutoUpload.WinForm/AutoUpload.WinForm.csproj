@@ -9,11 +9,22 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Remove="Properties\Settings.settings" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="log4net" Version="3.1.0" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\AutoUpload.Models\AutoUpload.Models.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Properties\Settings.settings">
+      <Generator>PublicSettingsSingleFileGenerator</Generator>
+      <LastGenOutput>Settings.Designer.cs</LastGenOutput>
+    </Resource>
   </ItemGroup>
 
   <ItemGroup>
@@ -27,10 +38,6 @@
   <ItemGroup>
     <None Update="log4net.config">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-    <None Update="Properties\Settings.settings">
-      <Generator>PublicSettingsSingleFileGenerator</Generator>
-      <LastGenOutput>Settings.Designer.cs</LastGenOutput>
     </None>
   </ItemGroup>
 

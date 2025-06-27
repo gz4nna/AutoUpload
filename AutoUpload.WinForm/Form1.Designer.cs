@@ -44,10 +44,11 @@ namespace AutoUpload.WinForm
             btnBrowsePath = new Button();
             tabPageLog = new TabPage();
             tabPageUpload = new TabPage();
-            listBoxUploadComplete = new ListBox();
-            labelUploadComplete = new Label();
-            listBoxPendingUpload = new ListBox();
             labelPendingUpload = new Label();
+            listBoxPendingUpload = new ListBox();
+            labelUploadComplete = new Label();
+            listBoxUploadComplete = new ListBox();
+            labelUploadHint = new Label();
             ((System.ComponentModel.ISupportInitialize)splitContainer1).BeginInit();
             splitContainer1.Panel1.SuspendLayout();
             splitContainer1.Panel2.SuspendLayout();
@@ -215,6 +216,7 @@ namespace AutoUpload.WinForm
             // 
             // tabPageUpload
             // 
+            tabPageUpload.Controls.Add(labelUploadHint);
             tabPageUpload.Controls.Add(labelPendingUpload);
             tabPageUpload.Controls.Add(listBoxPendingUpload);
             tabPageUpload.Controls.Add(labelUploadComplete);
@@ -227,26 +229,14 @@ namespace AutoUpload.WinForm
             tabPageUpload.Text = "上传";
             tabPageUpload.UseVisualStyleBackColor = true;
             // 
-            // listBoxUploadComplete
+            // labelPendingUpload
             // 
-            listBoxUploadComplete.BorderStyle = BorderStyle.FixedSingle;
-            listBoxUploadComplete.FormattingEnabled = true;
-            listBoxUploadComplete.HorizontalScrollbar = true;
-            listBoxUploadComplete.ItemHeight = 17;
-            listBoxUploadComplete.Location = new Point(68, 6);
-            listBoxUploadComplete.Name = "listBoxUploadComplete";
-            listBoxUploadComplete.ScrollAlwaysVisible = true;
-            listBoxUploadComplete.Size = new Size(213, 121);
-            listBoxUploadComplete.TabIndex = 0;
-            // 
-            // labelUploadComplete
-            // 
-            labelUploadComplete.AutoSize = true;
-            labelUploadComplete.Location = new Point(6, 6);
-            labelUploadComplete.Name = "labelUploadComplete";
-            labelUploadComplete.Size = new Size(56, 17);
-            labelUploadComplete.TabIndex = 1;
-            labelUploadComplete.Text = "上传成功";
+            labelPendingUpload.AutoSize = true;
+            labelPendingUpload.Location = new Point(6, 133);
+            labelPendingUpload.Name = "labelPendingUpload";
+            labelPendingUpload.Size = new Size(56, 17);
+            labelPendingUpload.TabIndex = 3;
+            labelPendingUpload.Text = "等待上传";
             // 
             // listBoxPendingUpload
             // 
@@ -260,14 +250,37 @@ namespace AutoUpload.WinForm
             listBoxPendingUpload.Size = new Size(213, 121);
             listBoxPendingUpload.TabIndex = 2;
             // 
-            // labelPendingUpload
+            // labelUploadComplete
             // 
-            labelPendingUpload.AutoSize = true;
-            labelPendingUpload.Location = new Point(6, 133);
-            labelPendingUpload.Name = "labelPendingUpload";
-            labelPendingUpload.Size = new Size(56, 17);
-            labelPendingUpload.TabIndex = 3;
-            labelPendingUpload.Text = "等待上传";
+            labelUploadComplete.AutoSize = true;
+            labelUploadComplete.Location = new Point(6, 6);
+            labelUploadComplete.Name = "labelUploadComplete";
+            labelUploadComplete.Size = new Size(56, 17);
+            labelUploadComplete.TabIndex = 1;
+            labelUploadComplete.Text = "上传成功";
+            // 
+            // listBoxUploadComplete
+            // 
+            listBoxUploadComplete.BorderStyle = BorderStyle.FixedSingle;
+            listBoxUploadComplete.FormattingEnabled = true;
+            listBoxUploadComplete.HorizontalScrollbar = true;
+            listBoxUploadComplete.ItemHeight = 17;
+            listBoxUploadComplete.Location = new Point(68, 6);
+            listBoxUploadComplete.Name = "listBoxUploadComplete";
+            listBoxUploadComplete.ScrollAlwaysVisible = true;
+            listBoxUploadComplete.Size = new Size(213, 121);
+            listBoxUploadComplete.TabIndex = 0;
+            // 
+            // labelUploadHint
+            // 
+            labelUploadHint.Dock = DockStyle.Bottom;
+            labelUploadHint.Font = new Font("Microsoft YaHei UI", 12F);
+            labelUploadHint.Location = new Point(3, 328);
+            labelUploadHint.MinimumSize = new Size(700, 0);
+            labelUploadHint.Name = "labelUploadHint";
+            labelUploadHint.Size = new Size(754, 100);
+            labelUploadHint.TabIndex = 4;
+            labelUploadHint.TextAlign = ContentAlignment.TopCenter;
             // 
             // Form1
             // 
@@ -318,5 +331,6 @@ namespace AutoUpload.WinForm
         private Label labelUploadComplete;
         private Label labelPendingUpload;
         private ListBox listBoxPendingUpload;
+        private Label labelUploadHint;
     }
 }
