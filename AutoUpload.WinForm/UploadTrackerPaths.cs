@@ -9,7 +9,6 @@ namespace AutoUpload.WinForm
     static class UploadTrackerPaths
     {
         public static string UploadFolder => Path.Combine(AppContext.BaseDirectory, "Uploads");
-        public static string UploadedPath => Path.Combine(AppContext.BaseDirectory, "uploaded.json");
         public static string PendingPath => Path.Combine(AppContext.BaseDirectory, "pending.json");
     }
 

@@ -615,44 +615,59 @@ namespace AutoUpload.WinForm
                 var result = await response.Content.ReadAsStringAsync();
 
                 // 成功
-                if (response.IsSuccessStatusCode)
-                {
-                    var writeResponse = JsonSerializer.Deserialize<MouldSizesCutterPostResponseModel>(result);
-                    if (writeResponse?.code == "00") log.Info($"写入数据成功: {result}");
-                    else
-                    {
-                        //MessageBox.Show($"写入数据失败: {response.StatusCode}\n{result}");
-                        labelUploadHintPrint($"写入数据失败: {response.StatusCode}");
-                        log.Warn($"写入数据失败: {response.StatusCode}\n{result}");
-                        return;
-                    }
-                }
-                else
+                if (!response.IsSuccessStatusCode)
                 {
                     //MessageBox.Show($"写入数据失败: {response.StatusCode}\n{result}");
                     labelUploadHintPrint($"写入数据失败: {response.StatusCode}");
                     log.Warn($"写入数据失败: {result}");
+                    return;                    
+                }
+
+                var writeResponse = JsonSerializer.Deserialize<MouldSizesCutterPostResponseModel>(result);
+                if (writeResponse?.code != "00") 
+                {
+                    //MessageBox.Show($"写入数据失败: {response.StatusCode}\n{result}");
+                    labelUploadHintPrint($"写入数据失败: {response.StatusCode}");
+                    log.Warn($"写入数据失败: {response.StatusCode}\n{result}");
                     return;
                 }
+
+                log.Info($"写入数据成功: {result}");
 
                 // 这里只有成功会执行
                 // 更新 uploaded.json 文件
                 // 将 responseInfos 中的文件名添加到 uploaded.json 中
                 var uploadedFiles = new List<UploadJsonModel>();
-                if (File.Exists(UploadTrackerPaths.UploadedPath))
+
+                if (!Directory.Exists(UploadTrackerPaths.UploadFolder))
                 {
-                    try
-                    {
-                        var uploadedJson = File.ReadAllText(UploadTrackerPaths.UploadedPath);
-                        uploadedFiles = JsonSerializer.Deserialize<List<UploadJsonModel>>(uploadedJson);
-                    }
-                    catch
-                    {
-                        log.Warn("uploaded.json 读取失败，已重置为空");
-                    }
+                    Directory.CreateDirectory(UploadTrackerPaths.UploadFolder);
+                    log.Info($"创建上传记录文件夹: {UploadTrackerPaths.UploadFolder}");
                 }
 
-                // 文件名为空的情况不可能出现
+                // 新要求,需要将上传记录按照月份保存
+                // 按照当前上传的月份去选文件
+                var monthlyRecord = Path.Combine(UploadTrackerPaths.UploadFolder, $"UploadRecords_{DateTime.Now.ToString("yyyyMM")}.json");
+                if (!File.Exists(monthlyRecord))
+                {
+                    // 如果不存在就创建一个新的
+                    File.WriteAllText(monthlyRecord, "[]");
+                    log.Info($"创建新的上传记录文件: {monthlyRecord}");
+                }
+
+                try
+                {
+                    // 读出这个月的上传记录
+                    var uploadedJson = File.ReadAllText(monthlyRecord);
+                    // 反序列化为 List<UploadJsonModel>
+                    uploadedFiles = JsonSerializer.Deserialize<List<UploadJsonModel>>(uploadedJson);
+                }
+                catch
+                {
+                    log.Warn("uploaded.json 读取失败，已重置为空");
+                }
+
+                // 添加这次上传成功的记录,文件名为空的情况不可能出现
                 responseInfos.ForEach(
                     response => uploadedFiles?.Add(
                         new()
@@ -662,29 +677,23 @@ namespace AutoUpload.WinForm
                         }
                     )
                 );
-
-                // 上传成功的文件添加到上传成功列表里面
-                if (listBoxUploadComplete.Items.Count != 0)
+                
+                // 在列表框中显示已上传文件列表
+                if (listBoxUploadComplete.InvokeRequired)
                 {
-                    // 在列表框中显示已上传文件列表
-                    if (listBoxUploadComplete.InvokeRequired)
-                    {
-                        // 以前的也不要删掉
-                        //listBoxUploadComplete.Invoke(new Action(() => listBoxUploadComplete.Items.Clear()));
-                        responseInfos.ForEach(
-                            file => listBoxUploadComplete.Invoke(
-                                new Action(() => listBoxUploadComplete.Items.Add(Path.GetFileName(file?.Item1) ?? string.Empty))
-                            )
-                        );
-                    }
-                    else
-                    {
-                        // 以前的也不要删掉
-                        //listBoxUploadComplete.Items.Clear();
-                        responseInfos.ForEach(
-                            file => listBoxUploadComplete.Items.Add(Path.GetFileName(file?.Item1) ?? string.Empty)
-                        );
-                    }
+                    listBoxUploadComplete.Invoke(new Action(() => listBoxUploadComplete.Items.Clear()));
+                    uploadedFiles?.ForEach(
+                        file => listBoxUploadComplete.Invoke(
+                            new Action(() => listBoxUploadComplete.Items.Add(Path.GetFileName(file.fileName) ?? string.Empty))
+                        )
+                    );
+                }
+                else
+                {
+                    listBoxUploadComplete.Items.Clear();
+                    uploadedFiles?.ForEach(
+                        file => listBoxUploadComplete.Items.Add(Path.GetFileName(file.fileName) ?? string.Empty)
+                    );
                 }
 
                 // 在列表框中删除已上传文件列表
@@ -705,7 +714,8 @@ namespace AutoUpload.WinForm
                     );
                 }
                 
-                File.WriteAllText(UploadTrackerPaths.UploadedPath, JsonSerializer.Serialize(uploadedFiles, new JsonSerializerOptions { WriteIndented = true }));
+                // 写入已上传文件
+                File.WriteAllText(monthlyRecord, JsonSerializer.Serialize(uploadedFiles, new JsonSerializerOptions { WriteIndented = true }));
                 log.Info($"更新 uploaded.json 文件成功，已添加 {uploadedFiles?.Count} 个文件名");
                 labelUploadHintPrint($"上传成功，已添加 {uploadedFiles?.Count} 个文件,{listBoxPendingUpload.Items.Count}个上传失败");
             }
@@ -714,7 +724,6 @@ namespace AutoUpload.WinForm
                 log.Error("处理上传结果时发生错误", ex);
                 //MessageBox.Show("处理上传结果时发生错误：" + ex.Message);
                 labelUploadHintPrint("处理上传结果时发生错误");
-
                 return;
             }
         }
