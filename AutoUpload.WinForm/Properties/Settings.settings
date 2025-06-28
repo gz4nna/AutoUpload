@@ -12,7 +12,7 @@
       <Value Profile="(Default)">.dxf</Value>
     </Setting>
     <Setting Name="AllowedFileNameRules" Type="System.String" Scope="User">
-      <Value Profile="(Default)">^([a-zA-Z0-9]+)\s([a-zA-Z0-9]+)\s([0-9]+).(dxf)</Value>
+      <Value Profile="(Default)">^([a-zA-Z0-9]+)\s([a-zA-Z0-9]+)(?:\s([0-9]+))?\.(dxf)</Value>
     </Setting>
     <Setting Name="XTenantId" Type="System.String" Scope="User">
       <Value Profile="(Default)">1627160160700962818</Value>

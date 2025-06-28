@@ -61,7 +61,7 @@ namespace AutoUpload.WinForm.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("^([a-zA-Z0-9]+)\\s([a-zA-Z0-9]+)\\s([0-9]+).(dxf)")]
+        [global::System.Configuration.DefaultSettingValueAttribute("^([a-zA-Z0-9]+)\\s([a-zA-Z0-9]+)(?:\\s([0-9]+))?\\.(dxf)")]
         public string AllowedFileNameRules {
             get {
                 return ((string)(this["AllowedFileNameRules"]));

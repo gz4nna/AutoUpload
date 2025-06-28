@@ -427,11 +427,20 @@ namespace AutoUpload.WinForm
 
             if (watchPath.Length > 0)
             {
-                if (!File.Exists(changedFilePath)) return;
+                // 排除掉被删除的
+                if (!File.Exists(changedFilePath))
+                {
+                    // 从待上传列表中移除
+                    pendingFiles.Remove(Path.GetFileName(changedFilePath));
+                    return;
+                }
+                // 符合后缀规则
                 if (allowedExtensions?
                     .Contains(Path.GetExtension(changedFilePath), StringComparer.OrdinalIgnoreCase) ?? false &&
-                    Regex.Match(Path.GetFileName(changedFilePath), @allowedFileNameRules).Success)
-                    // 如果文件名符合规则
+                    // 符合名称规则
+                    Regex.Match(Path.GetFileName(changedFilePath), @allowedFileNameRules).Success &&
+                    // 不在待上传列表中
+                    !pendingFiles.Contains(Path.GetFileName(changedFilePath)))                    
                     pendingFiles.Add(Path.GetFileName(changedFilePath));
             }
 
@@ -495,7 +504,7 @@ namespace AutoUpload.WinForm
             queryClient.DefaultRequestHeaders.Add("X-Trace-Id", Properties.Settings.Default.XTraceId);
             queryClient.DefaultRequestHeaders.Add("X-User-Id", Properties.Settings.Default.XUserId);
             queryClient.DefaultRequestHeaders.Add("X-Timestamp", DateTime.Now.ToString());
-
+            
             // 检查本地的合法性以及服务器上的合法性
             foreach (var file in pendingFiles)
             {
@@ -512,9 +521,29 @@ namespace AutoUpload.WinForm
                     string[]? fileNameParts = Path.GetFileNameWithoutExtension(file)?.Split();
                     log.Info($"访问地址: {writeURL}?partsCode={fileNameParts?[0]}&specification={fileNameParts?[1]}");
 
+                    // 为防止使用协同中不存在的旧型号,首先尝试获取对应的新型号
+                    log.Info($"尝试获取对应的新型号...");
+                    var newPartsCode = "";
+                    var partsAttrValueQueryResponse = await queryClient.GetAsync($"");
+                    var partsAttrValueQueryResult = await partsAttrValueQueryResponse.Content.ReadAsStringAsync();
+
+                    if (!partsAttrValueQueryResponse.IsSuccessStatusCode)
+                    {
+                        log.Info($"查询新型号规格失败,本身已是新型号：{partsAttrValueQueryResponse.StatusCode}\n{partsAttrValueQueryResult}");
+                    }
+                    else
+                    {
+                        // 如果查询成功,则解析出新的型号
+                        var partsAttrValueQueryData = JsonSerializer.Deserialize<PartsAttrValuePostResponseModel>(partsAttrValueQueryResult);
+                        newPartsCode = partsAttrValueQueryData?.data?.First()?.partsCode ?? "";
+                    }
+
                     // 用get去查型号规格对应的ID
                     log.Info($"查询型号规格对应的ID...");
-                    var queryResponse = await queryClient.GetAsync($"{writeURL}?partsCode={fileNameParts?[0]}&specification={fileNameParts?[1]}");
+                    // 如果没有新型号,则使用原来的型号
+                    var queryResponse = await queryClient.GetAsync(
+                        $"{writeURL}?partsCode={(newPartsCode == "" ? fileNameParts?[0] : newPartsCode)}&specification={fileNameParts?[1]}"
+                    );
                     var queryResult = await queryResponse.Content.ReadAsStringAsync();
                     if (!queryResponse.IsSuccessStatusCode)
                     {
@@ -529,12 +558,19 @@ namespace AutoUpload.WinForm
                     log.Info($"查询结束,正在处理...");
 
                     // 如果已有的型号规格中已经有了该编号文件,那就不上传了
-                    if (queryData?.data.Count != 0 && (queryData?.data.Select(d => d.fileName.Split().Last()).Contains(fileNameParts?[2]) ?? true))
+                    if (
+                        // count 为0可无视直接上传,只有拿到返回内容时需要判断
+                        queryData?.data.Count != 0 &&
+                        // 只有规格的情况:一定相等,要用 fileNameParts?.Length != 2 来避免误判
+                        fileNameParts?.Length != 2 &&
+                        // 有编号的情况:最后一个part肯定是编号,有相同的编号就不上传了
+                        (queryData?.data.Select(d => d.fileName.Split().Last()).Contains(fileNameParts?.Last()) ?? true))
                     {
                         log.Info($"文件 {file} 已经存在于型号规格中，跳过上传");
                         continue;
                     }
-                    // 如果是新的编号
+                    // 如果是新的编号记下来准备上传
+                    // file 中是原本的文件名, queryData 中是新型号的文件名
                     responseInfos.Add((file, queryData, null, null));
                 }
                 catch (Exception ex)
@@ -557,7 +593,27 @@ namespace AutoUpload.WinForm
                     // 设置请求头
                     fileContent.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("application/octet-stream");
                     var form = new MultipartFormDataContent();
-                    form.Add(fileContent, "files", Path.GetFileName(file));
+                    // 文件名和文件内容分开,如果是旧型号在上传的时候替换成第一个接口查出来的新型号
+                    // 防止取到data为空,先拿出来
+                    var data = responseInfos.First(response => response?.Item1 == file)?.Item2?.data;
+                    if (data == null) 
+                    {
+                        // 如果没有查到数据并且可以上传,则直接使用原文件名
+                        form.Add(fileContent,"files",Path.GetFileName(file));
+                    }
+                    else
+                    {
+                        // 如果查到了数据,则使用第一个数据(应该全是一样的)的文件名
+                        // 新型号在前一次查询时已经替换掉了,所以直接取用响应内容就好
+                        form.Add(
+                            fileContent,
+                            "files",
+                            Path.GetFileName(file).Replace(
+                                Path.GetFileName(file).Split().First(),
+                                data?.First().fileName
+                            )
+                        );
+                    }                        
 
                     // 调用上传接口                
                     sendClient.DefaultRequestHeaders.Add("X-Tenant-Id", Properties.Settings.Default.XTenantId);
@@ -579,7 +635,11 @@ namespace AutoUpload.WinForm
                             log.Info($"上传文件成功:{result}");
 
                             // 响应结果存下来
-                            responseInfos[responseInfos.IndexOf(responseInfos.First(response => response?.Item1 == file))] = (file, responseInfos.Last()?.Item2, uploadResponse, null);
+                            responseInfos[
+                                responseInfos.IndexOf(
+                                    responseInfos.First(response => response?.Item1 == file)
+                                )
+                            ] = (file, responseInfos.Last()?.Item2, uploadResponse, null);
                         }
                         else
                         {
@@ -610,8 +670,13 @@ namespace AutoUpload.WinForm
             }
 
             // 对上传成功的文件进行写入操作
+
+            // 这里有问题,一起写入要是出错所有都失败,要看一下能不能每次传一个上去
+            // 还有原文件名和替换文件名在这一段里还没处理好
+
             try
             {
+                // 留下来的都是上传成功的文件
                 if (responseInfos.Count == 0)
                 {
                     log.Info($"没有上传成功的文件!跳过写入!");
@@ -631,6 +696,7 @@ namespace AutoUpload.WinForm
                     cutterBlankSpec = (response?.Item2?.data.FirstOrDefault()?.cutterBlankSpec ?? 0).ToString(),
                     cutterType = response?.Item2?.data.FirstOrDefault()?.cutterType ?? 0,
                     fileId = long.Parse(response?.Item3?.data.FirstOrDefault()?.fileId ?? "0"),
+                    // 取数据时候尽可能用靠后的接口的响应,免得中间有修改忘记处理
                     fileName = response?.Item3?.data.FirstOrDefault()?.fileName ?? string.Empty,
                     fileUrl = response?.Item3?.data.FirstOrDefault()?.fileUrl ?? string.Empty,
                     mouldSizeCutterId = response?.Item2?.data.FirstOrDefault()?.mouldSizeCutterId ?? 0,
@@ -645,7 +711,7 @@ namespace AutoUpload.WinForm
                 var response = await writeClient.PostAsync(writeURL, httpContent);
                 var result = await response.Content.ReadAsStringAsync();
 
-                // 成功
+                // 写入不成功
                 if (!response.IsSuccessStatusCode)
                 {
                     //MessageBox.Show($"写入数据失败: {response.StatusCode}\n{result}");
@@ -703,6 +769,7 @@ namespace AutoUpload.WinForm
                     response => uploadedFiles?.Add(
                         new()
                         {
+                            // 这里使用原名马斌能看懂
                             fileName = Path.GetFileName(response?.Item1) ?? "",
                             uploadTime = response?.Item3?.timestamp ?? DateTime.Now.ToString()
                         }

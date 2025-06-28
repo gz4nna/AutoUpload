@@ -28,6 +28,19 @@ internal static class Program
         var logRepository = LogManager.GetRepository(Assembly.GetEntryAssembly());
         XmlConfigurator.Configure(logRepository, new FileInfo("log4net.config"));
 
+#if !DEBUG
+        ILog log = LogManager.GetLogger(typeof(Program));
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+        Application.ThreadException += (sender, e) =>
+        {
+            log.Error("UI线程未处理异常", e.Exception);
+        };
+        AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
+        {
+            var ex = e.ExceptionObject as Exception;
+            log.Error("非UI线程未处理异常", ex);
+        };
+#endif
         ApplicationConfiguration.Initialize();
         Application.Run(new Form1());
     }
