@@ -256,6 +256,17 @@ namespace AutoUpload.WinForm
         {
             log.Info($"切换到日志页面");
             this.tabControl.SelectedTab = this.tabPageLog;
+            // 打开指定目录
+            if (Directory.Exists(UploadTrackerPaths.LogFolder))
+            {
+                System.Diagnostics.Process.Start("explorer.exe", UploadTrackerPaths.LogFolder);
+                log.Info($"打开日志目录: {UploadTrackerPaths.LogFolder}");
+            }
+            else
+            {
+                //MessageBox.Show($"日志目录不存在: {UploadTrackerPaths.LogFolder}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                log.Error($"日志目录不存在: {UploadTrackerPaths.LogFolder}");
+            }
         }
 
         /// <summary>
@@ -383,6 +394,7 @@ namespace AutoUpload.WinForm
         /// <param name="changedFilePath"></param>
         private async void UpdateFileRecord(string changedFilePath = "")
         {
+            log.Info($"UpdateFileRecord");
             // 检查路径是否存在
             string watchPath = txtPath.Text;            
             var currentFiles = Directory.EnumerateFiles(watchPath)
@@ -391,7 +403,23 @@ namespace AutoUpload.WinForm
                     .Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase) ?? false &&
                     Regex.Match(Path.GetFileName(file), @allowedFileNameRules).Success)
                 .ToList();
+
+            log.Info("放入已有待上传");
             // 先放入已有待上传
+            if (!File.Exists(UploadTrackerPaths.PendingPath))
+            {
+                log.Warn($"没有找到待上传文件列表: {UploadTrackerPaths.PendingPath}");
+                // 如果不存在就创建一个新的
+                File.WriteAllText(
+                    UploadTrackerPaths.PendingPath, 
+                    JsonSerializer.Serialize(new UploadState
+                        {
+                            AllFilesInFolder = currentFiles,
+                            FilesToUpload = new List<string>()
+                        }, new JsonSerializerOptions { WriteIndented = true }
+                ));
+                log.Info($"创建新的待上传文件列表: {UploadTrackerPaths.PendingPath}");
+            }
             pendingFiles = JsonSerializer.Deserialize<UploadState>
                 (File.ReadAllText(UploadTrackerPaths.PendingPath))?.FilesToUpload
                 .Where(file=>currentFiles.Contains(file))
@@ -407,6 +435,7 @@ namespace AutoUpload.WinForm
                     pendingFiles.Add(Path.GetFileName(changedFilePath));
             }
 
+            log.Info("在列表框中显示待上传文件列表");
             // 在列表框中显示待上传文件列表
             if (listBoxPendingUpload.InvokeRequired)
             {
@@ -425,6 +454,7 @@ namespace AutoUpload.WinForm
                 );
             }
 
+            log.Info("更新 pending.json 文件");
             // 写入 pending.json 文件
             var state = new UploadState
             {
@@ -446,6 +476,7 @@ namespace AutoUpload.WinForm
         /// <returns></returns>
         private async Task Upload()
         {
+            if (pendingFiles == null || pendingFiles.Count == 0) return;
             #region 变量
             // 构造待上传文件列表
             string watchPath = txtPath.Text;
@@ -713,7 +744,17 @@ namespace AutoUpload.WinForm
                         .ForEach(file => listBoxPendingUpload.Items.Remove(Path.GetFileName(file?.Item1))
                     );
                 }
-                
+
+                // 删除 pending.json 中上传成功的文件
+                var pendingState = JsonSerializer.Deserialize<UploadState>(File.ReadAllText(UploadTrackerPaths.PendingPath));
+                if (pendingState != null) {
+                    pendingState.FilesToUpload = pendingState.FilesToUpload
+                        .Where(file => !responseInfos.Select(res => res?.Item1).Contains(file))
+                        .ToList();
+                    // 写回 pending.json
+                    File.WriteAllText(UploadTrackerPaths.PendingPath, JsonSerializer.Serialize(pendingState, new JsonSerializerOptions { WriteIndented = true }));
+                }
+
                 // 写入已上传文件
                 File.WriteAllText(monthlyRecord, JsonSerializer.Serialize(uploadedFiles, new JsonSerializerOptions { WriteIndented = true }));
                 log.Info($"更新 uploaded.json 文件成功，已添加 {uploadedFiles?.Count} 个文件名");
