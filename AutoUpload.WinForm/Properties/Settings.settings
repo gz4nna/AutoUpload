@@ -9,10 +9,10 @@
       <Value Profile="(Default)">http://10.101.12.30:32516/dp-oss/api/v1/file-storages/upload</Value>
     </Setting>
     <Setting Name="AllowedExtensions" Type="System.String" Scope="User">
-      <Value Profile="(Default)">.dwg</Value>
+      <Value Profile="(Default)">.dxf</Value>
     </Setting>
     <Setting Name="AllowedFileNameRules" Type="System.String" Scope="User">
-      <Value Profile="(Default)">^([a-zA-Z0-9]+)\s([a-zA-Z0-9]+)\s([0-9]+).(dwg)</Value>
+      <Value Profile="(Default)">^([a-zA-Z0-9]+)\s([a-zA-Z0-9]+)\s([0-9]+).(dxf)</Value>
     </Setting>
     <Setting Name="XTenantId" Type="System.String" Scope="User">
       <Value Profile="(Default)">1627160160700962818</Value>
