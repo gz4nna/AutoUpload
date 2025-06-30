@@ -4,6 +4,7 @@ using AutoUpload.Models.ResponseModels;
 using log4net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using AutoUpload.WinForm.Helpers;
 
 namespace AutoUpload.WinForm
 {
@@ -27,7 +28,7 @@ namespace AutoUpload.WinForm
         /// <summary>
         /// 本地文件夹监视器
         /// </summary>
-        private FileSystemWatcher? watcher;
+        private DelayFileSystemWatcherHelper? watcher;
         /// <summary>
         /// 待上传的文件列表
         /// </summary>
@@ -40,6 +41,10 @@ namespace AutoUpload.WinForm
         /// 写入的URL
         /// </summary>
         private string? writeURL;
+        /// <summary>
+        /// 根据旧型号查找新型号的接口地址
+        /// </summary>
+        private string? queryURL;
         #endregion
 
         #region 初始化
@@ -85,6 +90,10 @@ namespace AutoUpload.WinForm
                 log.Info($"读取配置文件: <WriteURL>...");
                 writeURL = Properties.Settings.Default.WriteURL;
                 log.Info($"读取配置文件: <WriteURL> : {writeURL}");
+
+                log.Info($"读取配置文件: <QueryURL>...");
+                queryURL = Properties.Settings.Default.QueryURL;
+                log.Info($"读取配置文件: <QueryURL> : {queryURL}");
 
                 log.Info($"读取配置文件: <AllowedExtensions>...");
                 allowedExtensions = Properties.Settings.Default.AllowedExtensions.Split("|");
@@ -133,13 +142,18 @@ namespace AutoUpload.WinForm
                 var uploadedFiles = new HashSet<UploadJsonModel>();
 
                 // 在文件夹中读取全部上传文件
-                if (File.Exists(UploadTrackerPaths.UploadFolder))
+                if (Directory.Exists(UploadTrackerPaths.UploadFolder))
                 {
                     try
                     {
                         // 每个文件
                         foreach (var file in Directory.EnumerateFiles(UploadTrackerPaths.UploadFolder))
                         {
+                            var fileName = Path.GetFileName(file);
+                            // 如果是这个月的
+                            // UploadRecords_202506.json
+                            if (!fileName.Equals($"UploadRecords_{DateTime.Now.ToString("yyyyMM")}.json")) continue;
+
                             var uploadedJson = File.ReadAllText(file);
                             var tmpfile = JsonSerializer.Deserialize<List<UploadJsonModel>>(uploadedJson);
                             // 只要不是空
@@ -188,27 +202,17 @@ namespace AutoUpload.WinForm
         private void InitWatcher(string path)
         {
             // 清除之前的监视器
-            if (watcher != null)
-            {
-                watcher.EnableRaisingEvents = false;
-                watcher.Dispose();
-            }
+            watcher?.Dispose();
 
             // 创建新的监视器实例
-            watcher = new FileSystemWatcher(path)
+            watcher = new DelayFileSystemWatcherHelper(path, "*.*", 800);
+
+            watcher.DelayChanged += (changedFile) =>
             {
-                IncludeSubdirectories = false,
-                // 监视的内容包括文件名,最后写入时间和创建时间等
-                NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime
+                // 这里是延时合并后的回调
+                this.Invoke(new Action(() => UpdateFileRecord(changedFile ?? "")));
             };
-
-            watcher.Created += OnChanged;
-            watcher.Deleted += OnChanged;
-            watcher.Changed += OnChanged;
-            watcher.Renamed += OnRenamed;
-
-            watcher.EnableRaisingEvents = true;
-            // UpdateFileRecord();
+            watcher.Start();
         }
         #endregion
 
@@ -404,8 +408,9 @@ namespace AutoUpload.WinForm
                     Regex.Match(Path.GetFileName(file), @allowedFileNameRules).Success)
                 .ToList();
 
-            log.Info("放入已有待上传");
             // 先放入已有待上传
+            log.Info("放入已有待上传");
+            // 不存在时创建一个新的
             if (!File.Exists(UploadTrackerPaths.PendingPath))
             {
                 log.Warn($"没有找到待上传文件列表: {UploadTrackerPaths.PendingPath}");
@@ -420,29 +425,29 @@ namespace AutoUpload.WinForm
                 ));
                 log.Info($"创建新的待上传文件列表: {UploadTrackerPaths.PendingPath}");
             }
+            // 存在待上传并且在当前目录下能找到这些
             pendingFiles = JsonSerializer.Deserialize<UploadState>
                 (File.ReadAllText(UploadTrackerPaths.PendingPath))?.FilesToUpload
-                .Where(file=>currentFiles.Contains(file))
+                .Where(file => currentFiles.Contains(file))
+                .ToHashSet()
                 .ToList() ?? new();
 
-            if (watchPath.Length > 0)
+            // 排除掉被触发时为删除文件的情况
+            if (!File.Exists(changedFilePath))
             {
-                // 排除掉被删除的
-                if (!File.Exists(changedFilePath))
-                {
-                    // 从待上传列表中移除
-                    pendingFiles.Remove(Path.GetFileName(changedFilePath));
-                    return;
-                }
-                // 符合后缀规则
-                if (allowedExtensions?
-                    .Contains(Path.GetExtension(changedFilePath), StringComparer.OrdinalIgnoreCase) ?? false &&
-                    // 符合名称规则
-                    Regex.Match(Path.GetFileName(changedFilePath), @allowedFileNameRules).Success &&
-                    // 不在待上传列表中
-                    !pendingFiles.Contains(Path.GetFileName(changedFilePath)))                    
-                    pendingFiles.Add(Path.GetFileName(changedFilePath));
+                // 从待上传列表中移除
+                pendingFiles.Remove(Path.GetFileName(changedFilePath));
+                return;
             }
+
+            // 添加文件之前判断是否符合后缀规则和命名规则
+            if (allowedExtensions?
+                .Contains(Path.GetExtension(changedFilePath), StringComparer.OrdinalIgnoreCase) ?? false &&
+                // 符合名称规则
+                Regex.Match(Path.GetFileName(changedFilePath), @allowedFileNameRules).Success &&
+                // 不在待上传列表中
+                !pendingFiles.Contains(Path.GetFileName(changedFilePath)))
+                pendingFiles.Add(Path.GetFileName(changedFilePath));
 
             log.Info("在列表框中显示待上传文件列表");
             // 在列表框中显示待上传文件列表
@@ -464,7 +469,7 @@ namespace AutoUpload.WinForm
             }
 
             log.Info("更新 pending.json 文件");
-            // 写入 pending.json 文件
+            // 写入 pending.json 文件,已失效的不会被写入
             var state = new UploadState
             {
                 AllFilesInFolder = currentFiles,
@@ -497,6 +502,7 @@ namespace AutoUpload.WinForm
             using var sendClient = new HttpClient();
             // 写入文件
             using var writeClient = new HttpClient();
+            var newPartsCode = "";
             #endregion
 
             // 根据型号查询刀模ID添加头            
@@ -518,31 +524,34 @@ namespace AutoUpload.WinForm
                 try
                 {
                     // 获取文件名并拆分,文件名中包含型号和规格
-                    string[]? fileNameParts = Path.GetFileNameWithoutExtension(file)?.Split();
-                    log.Info($"访问地址: {writeURL}?partsCode={fileNameParts?[0]}&specification={fileNameParts?[1]}");
+                    string[]? fileNameParts = Path.GetFileNameWithoutExtension(file)?.Split();                    
 
                     // 为防止使用协同中不存在的旧型号,首先尝试获取对应的新型号
-                    log.Info($"尝试获取对应的新型号...");
-                    var newPartsCode = "";
-                    var partsAttrValueQueryResponse = await queryClient.GetAsync($"");
+                    log.Info($"尝试获取对应的新型号...");                    
+                    log.Info($"访问地址: {queryURL}?mbomCode={fileNameParts?[0]}");
+                    var partsAttrValueQueryResponse = await queryClient.PostAsync(
+                        $"{queryURL}?mbomCode={fileNameParts?[0]}", 
+                        new StringContent(string.Empty));
                     var partsAttrValueQueryResult = await partsAttrValueQueryResponse.Content.ReadAsStringAsync();
 
                     if (!partsAttrValueQueryResponse.IsSuccessStatusCode)
                     {
                         log.Info($"查询新型号规格失败,本身已是新型号：{partsAttrValueQueryResponse.StatusCode}\n{partsAttrValueQueryResult}");
+                        newPartsCode = fileNameParts?[0];
                     }
                     else
                     {
                         // 如果查询成功,则解析出新的型号
                         var partsAttrValueQueryData = JsonSerializer.Deserialize<PartsAttrValuePostResponseModel>(partsAttrValueQueryResult);
-                        newPartsCode = partsAttrValueQueryData?.data?.First()?.partsCode ?? "";
+                        newPartsCode = partsAttrValueQueryData?.data?.First()?.partsCode ?? fileNameParts?[0];
                     }
 
                     // 用get去查型号规格对应的ID
                     log.Info($"查询型号规格对应的ID...");
+                    log.Info($"访问地址: {writeURL}?partsCode={newPartsCode}&specification={fileNameParts?[1]}");
                     // 如果没有新型号,则使用原来的型号
                     var queryResponse = await queryClient.GetAsync(
-                        $"{writeURL}?partsCode={(newPartsCode == "" ? fileNameParts?[0] : newPartsCode)}&specification={fileNameParts?[1]}"
+                        $"{writeURL}?partsCode={newPartsCode}&specification={fileNameParts?[1]}"
                     );
                     var queryResult = await queryResponse.Content.ReadAsStringAsync();
                     if (!queryResponse.IsSuccessStatusCode)
@@ -556,6 +565,12 @@ namespace AutoUpload.WinForm
                     // get结果
                     var queryData = JsonSerializer.Deserialize<MouldSizesCutterResponseModel>(queryResult);
                     log.Info($"查询结束,正在处理...");
+
+                    if (queryData?.code != "00")
+                    {
+                        log.Warn($"查询型号规格失败: {queryData?.error} {queryData?.message}");
+                        continue;
+                    }
 
                     // 如果已有的型号规格中已经有了该编号文件,那就不上传了
                     if (
@@ -593,24 +608,24 @@ namespace AutoUpload.WinForm
                     // 设置请求头
                     fileContent.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("application/octet-stream");
                     var form = new MultipartFormDataContent();
+
                     // 文件名和文件内容分开,如果是旧型号在上传的时候替换成第一个接口查出来的新型号
-                    // 防止取到data为空,先拿出来
-                    var data = responseInfos.First(response => response?.Item1 == file)?.Item2?.data;
-                    if (data == null) 
+                    // 更正,前面有限制,这里不判断也没事,直接用newPartsCode就行
+                    if (responseInfos.First(response => response?.Item1 == file)?.Item2?.code != "00") 
                     {
                         // 如果没有查到数据并且可以上传,则直接使用原文件名
                         form.Add(fileContent,"files",Path.GetFileName(file));
                     }
+                    // 00 表示成功
                     else
                     {
-                        // 如果查到了数据,则使用第一个数据(应该全是一样的)的文件名
-                        // 新型号在前一次查询时已经替换掉了,所以直接取用响应内容就好
+                        // 如果查到了数据,直接使用新型号的文件名
                         form.Add(
                             fileContent,
                             "files",
                             Path.GetFileName(file).Replace(
                                 Path.GetFileName(file).Split().First(),
-                                data?.First().fileName
+                                newPartsCode
                             )
                         );
                     }                        

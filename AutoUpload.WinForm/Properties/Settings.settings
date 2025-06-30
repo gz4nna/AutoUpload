@@ -29,5 +29,8 @@
     <Setting Name="WriteURL" Type="System.String" Scope="User">
       <Value Profile="(Default)">http://10.101.12.30:32516/dp-mould/api/v1/mould-sizes/cutter</Value>
     </Setting>
+    <Setting Name="QueryURL" Type="System.String" Scope="User">
+      <Value Profile="(Default)">http://10.101.12.30:32516/dp-product/open/api/v1/parts/attr-value</Value>
+    </Setting>
   </Settings>
 </SettingsFile>

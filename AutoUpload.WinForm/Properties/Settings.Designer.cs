@@ -130,5 +130,17 @@ namespace AutoUpload.WinForm.Properties {
                 this["WriteURL"] = value;
             }
         }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("http://10.101.12.30:32516/dp-product/open/api/v1/parts/attr-value")]
+        public string QueryURL {
+            get {
+                return ((string)(this["QueryURL"]));
+            }
+            set {
+                this["QueryURL"] = value;
+            }
+        }
     }
 }
