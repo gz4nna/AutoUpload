@@ -1,6 +1,6 @@
 ﻿using log4net;
 
-namespace AutoUpload.WinForm.Helpers;
+namespace AutoUpload.Models.Helpers;
 public class DelayFileSystemWatcherHelper : IDisposable
 {
     private static readonly ILog log = LogManager.GetLogger(typeof(DelayFileSystemWatcherHelper));
@@ -22,7 +22,7 @@ public class DelayFileSystemWatcherHelper : IDisposable
     /// <param name="path">监控目录</param>
     /// <param name="filter">文件过滤，如"*"或"*.dxf"</param>
     /// <param name="delayMs">延时毫秒数，默认500</param>
-    public DelayFileSystemWatcherHelper(string path, string filter = "*", double delayMs = 500)
+    public DelayFileSystemWatcherHelper(string path, string filter = "*.dxf", double delayMs = 500)
     {
         watcher = new FileSystemWatcher(path, filter)
         {

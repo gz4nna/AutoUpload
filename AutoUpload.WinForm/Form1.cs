@@ -4,7 +4,7 @@ using AutoUpload.Models.ResponseModels;
 using log4net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using AutoUpload.WinForm.Helpers;
+using AutoUpload.Models.Helpers;
 
 namespace AutoUpload.WinForm
 {
