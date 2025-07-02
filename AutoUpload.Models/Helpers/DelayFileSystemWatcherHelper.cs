@@ -11,6 +11,8 @@ public class DelayFileSystemWatcherHelper : IDisposable
     private bool eventPending = false;
     private string? lastChangedFile = null;
 
+    private HashSet<string> currentCatchFiles = new();
+
     /// <summary>
     /// 事件：延时后触发
     /// </summary>
@@ -41,7 +43,8 @@ public class DelayFileSystemWatcherHelper : IDisposable
             string? file;
             lock (lockObj)
             {
-                file = lastChangedFile;
+                file = string.Join("|", currentCatchFiles);
+                currentCatchFiles.Clear();
                 eventPending = false;
             }
             DelayChanged?.Invoke(file);
@@ -57,6 +60,10 @@ public class DelayFileSystemWatcherHelper : IDisposable
         {
             log.Info($"[FileChanged] {e.ChangeType}: {e.FullPath}");
             lastChangedFile = e.FullPath;
+            if (!currentCatchFiles.Contains(lastChangedFile))
+            {
+                currentCatchFiles.Add(lastChangedFile);
+            }
             eventPending = true;
             delayTimer.Stop();
             delayTimer.Start();
@@ -69,6 +76,10 @@ public class DelayFileSystemWatcherHelper : IDisposable
         {
             log.Info($"[FileRenamed] {e.ChangeType}: {e.FullPath}");
             lastChangedFile = e.FullPath;
+            if (!currentCatchFiles.Contains(lastChangedFile))
+            {
+                currentCatchFiles.Add(lastChangedFile);
+            }
             eventPending = true;
             delayTimer.Stop();
             delayTimer.Start();

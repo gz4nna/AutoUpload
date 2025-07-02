@@ -398,33 +398,35 @@ namespace AutoUpload.WinForm
         /// <param name="changedFilePath"></param>
         private async void UpdateFileRecord(string changedFilePath = "")
         {
-            log.Info($"UpdateFileRecord");
+            log.Info($"UpdateFileRecord: {changedFilePath}");
             // 检查路径是否存在
-            string watchPath = txtPath.Text;            
+            string watchPath = txtPath.Text;
             var currentFiles = Directory.EnumerateFiles(watchPath)
-                .Select(file=> Path.GetFileName(file))
-                .Where(file=> allowedExtensions?
+                .Select(file => Path.GetFileName(file))
+                .Where(file => allowedExtensions?
                     .Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase) ?? false &&
                     Regex.Match(Path.GetFileName(file), @allowedFileNameRules).Success)
                 .ToList();
+            log.Info($"已加载 {watchPath} 下所有文件,共 {currentFiles.Count} 个符合规则的文件");
 
             // 先放入已有待上传
-            log.Info("放入已有待上传");
+            log.Info($"读取待上传文件列表: {UploadTrackerPaths.PendingPath}");
             // 不存在时创建一个新的
             if (!File.Exists(UploadTrackerPaths.PendingPath))
             {
                 log.Warn($"没有找到待上传文件列表: {UploadTrackerPaths.PendingPath}");
                 // 如果不存在就创建一个新的
                 File.WriteAllText(
-                    UploadTrackerPaths.PendingPath, 
+                    UploadTrackerPaths.PendingPath,
                     JsonSerializer.Serialize(new UploadState
-                        {
-                            AllFilesInFolder = currentFiles,
-                            FilesToUpload = new List<string>()
-                        }, new JsonSerializerOptions { WriteIndented = true }
+                    {
+                        AllFilesInFolder = currentFiles,
+                        FilesToUpload = new List<string>()
+                    }, new JsonSerializerOptions { WriteIndented = true }
                 ));
                 log.Info($"创建新的待上传文件列表: {UploadTrackerPaths.PendingPath}");
             }
+            log.Info($"去掉当前目录下已不存在的文件");
             // 存在待上传并且在当前目录下能找到这些
             pendingFiles = JsonSerializer.Deserialize<UploadState>
                 (File.ReadAllText(UploadTrackerPaths.PendingPath))?.FilesToUpload
@@ -432,22 +434,28 @@ namespace AutoUpload.WinForm
                 .ToHashSet()
                 .ToList() ?? new();
 
-            // 排除掉被触发时为删除文件的情况
-            if (!File.Exists(changedFilePath))
+            var changedFilePathSplits = changedFilePath.Split("|");
+            foreach (var filePath in changedFilePathSplits)
             {
-                // 从待上传列表中移除
-                pendingFiles.Remove(Path.GetFileName(changedFilePath));
-                return;
-            }
+                log.Info($"处理文件变化: {filePath}");
+                // 排除掉被触发时为删除文件的情况
+                if (!File.Exists(filePath))
+                {
+                    // 从待上传列表中移除
+                    if (pendingFiles.Contains(Path.GetFileName(filePath))) pendingFiles.Remove(Path.GetFileName(filePath));
+                    return;
+                }
 
-            // 添加文件之前判断是否符合后缀规则和命名规则
-            if (allowedExtensions?
-                .Contains(Path.GetExtension(changedFilePath), StringComparer.OrdinalIgnoreCase) ?? false &&
-                // 符合名称规则
-                Regex.Match(Path.GetFileName(changedFilePath), @allowedFileNameRules).Success &&
-                // 不在待上传列表中
-                !pendingFiles.Contains(Path.GetFileName(changedFilePath)))
-                pendingFiles.Add(Path.GetFileName(changedFilePath));
+                // 添加文件之前判断是否符合后缀规则和命名规则
+                if (allowedExtensions?
+                    .Contains(Path.GetExtension(filePath), StringComparer.OrdinalIgnoreCase) ?? false &&
+                    // 符合名称规则
+                    Regex.Match(Path.GetFileName(filePath), @allowedFileNameRules).Success &&
+                    // 不在待上传列表中
+                    !pendingFiles.Contains(Path.GetFileName(filePath)))
+                    pendingFiles.Add(Path.GetFileName(filePath));
+                log.Info($"添加已修改文件: {Path.GetFileName(filePath)}");
+            }
 
             log.Info("在列表框中显示待上传文件列表");
             // 在列表框中显示待上传文件列表
@@ -468,7 +476,7 @@ namespace AutoUpload.WinForm
                 );
             }
 
-            log.Info("更新 pending.json 文件");
+            log.Info($"更新 {UploadTrackerPaths.PendingPath} 文件");
             // 写入 pending.json 文件,已失效的不会被写入
             var state = new UploadState
             {
