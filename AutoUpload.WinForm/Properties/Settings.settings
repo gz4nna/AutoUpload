@@ -32,5 +32,8 @@
     <Setting Name="QueryURL" Type="System.String" Scope="User">
       <Value Profile="(Default)">http://10.101.12.30:32516/dp-product/open/api/v1/parts/attr-value</Value>
     </Setting>
+    <Setting Name="ListURL" Type="System.String" Scope="User">
+      <Value Profile="(Default)">http://10.101.12.30:32516/dp-mould/api/v1/mould-sizes/list</Value>
+    </Setting>
   </Settings>
 </SettingsFile>

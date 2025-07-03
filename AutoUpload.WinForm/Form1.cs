@@ -13,6 +13,8 @@ namespace AutoUpload.WinForm
         #region 成员变量
         // 日志
         private static readonly ILog log = LogManager.GetLogger(typeof(Form1));
+        // 每小时执行一次的 System.Threading.Timer 定时器
+        private System.Threading.Timer? timer;
 
         // 从settings里面取用
         /// <summary>
@@ -45,6 +47,10 @@ namespace AutoUpload.WinForm
         /// 根据旧型号查找新型号的接口地址
         /// </summary>
         private string? queryURL;
+        /// <summary>
+        /// 第一次上传的时候用来查询 mouldSizeId 的接口地址
+        /// </summary>
+        private string? listURL;
         #endregion
 
         #region 初始化
@@ -95,9 +101,13 @@ namespace AutoUpload.WinForm
                 queryURL = Properties.Settings.Default.QueryURL;
                 log.Info($"读取配置文件: <QueryURL> : {queryURL}");
 
+                log.Info($"读取配置文件: <ListURL>...");
+                listURL = Properties.Settings.Default.ListURL;
+                log.Info($"读取配置文件: <ListURL> : {listURL}");
+
                 log.Info($"读取配置文件: <AllowedExtensions>...");
                 allowedExtensions = Properties.Settings.Default.AllowedExtensions.Split("|");
-                log.Info($"读取配置文件: <allowedExtensions> : {allowedExtensions}");
+                log.Info($"读取配置文件: <allowedExtensions> : {Properties.Settings.Default.AllowedExtensions}");
 
                 log.Info($"读取配置文件: <AllowedFileNameRules>...");
                 allowedFileNameRules = Properties.Settings.Default.AllowedFileNameRules;
@@ -130,6 +140,13 @@ namespace AutoUpload.WinForm
 
                 this.menuShow.Click += (s, e) => ShowMainWindow();
                 this.menuExit.Click += (s, e) => Application.Exit();
+
+                timer = new System.Threading.Timer(
+                    async _ => await UploadPre(),
+                    null,
+                    TimeSpan.Zero, // 立即执行
+                    TimeSpan.FromHours(1) // 每小时执行一次
+                );
                 log.Info($"初始化控件完成!");
 
                 // 在当前目录下创建一个upload文件夹

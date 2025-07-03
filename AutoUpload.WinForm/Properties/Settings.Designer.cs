@@ -142,5 +142,17 @@ namespace AutoUpload.WinForm.Properties {
                 this["QueryURL"] = value;
             }
         }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("http://10.101.12.30:32516/dp-mould/api/v1/mould-sizes/list")]
+        public string ListURL {
+            get {
+                return ((string)(this["ListURL"]));
+            }
+            set {
+                this["ListURL"] = value;
+            }
+        }
     }
 }
