@@ -1,11 +1,9 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿namespace AutoUpload.Models.ResponseModels;
 
-namespace AutoUpload.Models.ResponseModels;
-
+/// <summary>
+/// 写入模具尺寸刀具请求模型
+/// 不需要针对long进行转换
+/// </summary>
 public class MouldSizesCutterRequestModel
 {
     public int? containerNum { get; set; } = 0;

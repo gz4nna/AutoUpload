@@ -790,17 +790,17 @@ namespace AutoUpload.WinForm
                     // 构造写入接口需要的数据
                     var jsonContent = JsonSerializer.Serialize(new MouldSizesCutterRequestModel()
                     {
-                        containerNum = responseInfo?.Item2?.data.FirstOrDefault()?.containerNum ?? 0,
-                        cutterBlankSpec = (responseInfo?.Item2?.data.FirstOrDefault()?.cutterBlankSpec ?? 0).ToString(),
-                        cutterType = responseInfo?.Item2?.data.FirstOrDefault()?.cutterType ?? 0,
-                        fileId = long.Parse(responseInfo?.Item4?.data.FirstOrDefault()?.fileId ?? "0"),
+                        containerNum = responseInfo?.Item2?.data?.FirstOrDefault()?.containerNum ?? 0,
+                        cutterBlankSpec = (responseInfo?.Item2?.data?.FirstOrDefault()?.cutterBlankSpec ?? 0).ToString(),
+                        cutterType = responseInfo?.Item2?.data?.FirstOrDefault()?.cutterType ?? 0,
+                        fileId = long.Parse(responseInfo?.Item4?.data?.FirstOrDefault()?.fileId ?? "0"),
                         // 取数据时候尽可能用靠后的接口的响应,免得中间有修改忘记处理
-                        fileName = responseInfo?.Item4?.data.FirstOrDefault()?.fileName ?? string.Empty,
-                        fileUrl = responseInfo?.Item4?.data.FirstOrDefault()?.fileUrl ?? string.Empty,
-                        mouldSizeCutterId = responseInfo?.Item2?.data.FirstOrDefault()?.mouldSizeCutterId ?? 0,
+                        fileName = responseInfo?.Item4?.data?.FirstOrDefault()?.fileName ?? string.Empty,
+                        fileUrl = responseInfo?.Item4?.data?.FirstOrDefault()?.fileUrl ?? string.Empty,
+                        mouldSizeCutterId = long.Parse(responseInfo?.Item2?.data?.FirstOrDefault()?.mouldSizeCutterId ?? ""),
                         // 刀模编号从刀模编号列表查询接口中获取
                         mouldSizeId = long.Parse(responseInfo?.Item3?.data?.records?.First(record => record?.specification?.Split('.')?[0] == responseInfo?.Item1?.Split()?[1])?.mouldSizeId ?? "0"),
-                        seq = responseInfo?.Item2?.data.FirstOrDefault()?.seq ?? 0
+                        seq = responseInfo?.Item2?.data?.FirstOrDefault()?.seq ?? 0
                     }, new JsonSerializerOptions { WriteIndented = true });
                     log.Info($"{jsonContent}");
 

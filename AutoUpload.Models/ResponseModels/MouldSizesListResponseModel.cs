@@ -1,9 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+﻿using AutoUpload.Models.JsonModels.Helpers;
 using System.Text.Json.Serialization;
-using System.Threading.Tasks;
 
 namespace AutoUpload.Models.ResponseModels;
 
@@ -16,7 +12,7 @@ public class MouldSizesListResponseModel
     public MouldSizesListResponseDataModel? data { get; set; } = new MouldSizesListResponseDataModel();
     public string? errors { get; set; } = string.Empty;
     public string? message { get; set; } = string.Empty;
-    public string? timestamp { get; set; } = string.Empty;  
+    public string? timestamp { get; set; } = string.Empty;
 }
 
 /// <summary>
