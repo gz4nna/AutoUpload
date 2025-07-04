@@ -13,7 +13,7 @@ namespace AutoUpload.Models.ResponseModels;
 public class MouldSizesListResponseModel
 {
     public string? code { get; set; } = string.Empty;
-    public MouldSizesCutterPostResponseModel? data { get; set; } = new MouldSizesCutterPostResponseModel();
+    public MouldSizesListResponseDataModel? data { get; set; } = new MouldSizesListResponseDataModel();
     public string? errors { get; set; } = string.Empty;
     public string? message { get; set; } = string.Empty;
     public string? timestamp { get; set; } = string.Empty;  
