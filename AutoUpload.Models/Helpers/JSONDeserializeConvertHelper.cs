@@ -42,7 +42,7 @@ public class FlexibleListOrStringConverter<T> : JsonConverter<List<T>?>
         {
             // 字符串，直接跳过
             reader.GetString(); // 读取但不使用
-            return null; // 或 return new List<T>();
+            return new(); // 或 return new List<T>();
         }
         else if (reader.TokenType == JsonTokenType.Null)
         {

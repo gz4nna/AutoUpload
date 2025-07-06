@@ -24,7 +24,7 @@ namespace AutoUpload.WinForm
         /// <summary>
         /// 文件名合法规则
         /// </summary>
-        private string allowedFileNameRules;
+        private string? allowedFileNameRules;
 
         // 私有成员变量
         /// <summary>
@@ -34,7 +34,7 @@ namespace AutoUpload.WinForm
         /// <summary>
         /// 待上传的文件列表
         /// </summary>
-        private List<string> pendingFiles;
+        private List<string>? pendingFiles;
         /// <summary>
         /// 上传的目标URL
         /// </summary>
@@ -467,10 +467,10 @@ namespace AutoUpload.WinForm
                 if (allowedExtensions?
                     .Contains(Path.GetExtension(filePath), StringComparer.OrdinalIgnoreCase) ?? false &&
                     // 符合名称规则
-                    Regex.Match(Path.GetFileName(filePath), @allowedFileNameRules).Success &&
-                    // 不在待上传列表中
-                    !pendingFiles.Contains(Path.GetFileName(filePath)))
+                    Regex.Match(Path.GetFileName(filePath), @allowedFileNameRules).Success)
                     pendingFiles.Add(Path.GetFileName(filePath));
+                // 去重
+                pendingFiles = pendingFiles.ToHashSet().ToList();
                 log.Info($"添加已修改文件: {Path.GetFileName(filePath)}");
             }
 
@@ -603,11 +603,11 @@ namespace AutoUpload.WinForm
                     // 如果已有的型号规格中已经有了该编号文件,那就不上传了
                     if (
                         // count 为0可无视直接上传,只有拿到返回内容时需要判断
-                        queryData?.data.Count != 0 &&
+                        queryData?.data?.Count != 0 &&
                         // 只有规格的情况:一定相等,要用 fileNameParts?.Length != 2 来避免误判
                         fileNameParts?.Length != 2 &&
                         // 有编号的情况:最后一个part肯定是编号,有相同的编号就不上传了
-                        (queryData?.data.Select(d => d.fileName.Split().Last()).Contains(fileNameParts?.Last()) ?? true))
+                        (queryData?.data?.Select(d => d?.fileName?.Split().Last()).Contains(fileNameParts?.Last()) ?? true))
                     {
                         log.Info($"文件 {file} 已经存在于型号规格中，跳过上传");
                         continue;
@@ -655,6 +655,7 @@ namespace AutoUpload.WinForm
                 {
                     // 读取文件内容
                     log.Info($"读取文件内容...");
+                    if (file == null) continue;
                     var fileContent = new ByteArrayContent(File.ReadAllBytes(Path.Combine(watchPath, file)));
                     log.Info($"读取文件内容完成，文件大小: {fileContent.Headers.ContentLength} 字节");
 
