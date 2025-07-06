@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -39,7 +40,8 @@ namespace AutoUpload.WinForm
         /// <summary>
         /// 待上传的文件列表
         /// </summary>
-        private List<string>? pendingFiles;
+        private ConcurrentBag<string>? pendingFiles = new();
+        private readonly object _lockObj = new();
         /// <summary>
         /// 上传的目标URL
         /// </summary>
@@ -322,7 +324,13 @@ namespace AutoUpload.WinForm
                     }
 
                     // 恢复成绝对路径
-                    pendingFiles = state.FilesToUpload.Select(file => Path.Combine(watchPath, file)).ToList();
+                    lock (_lockObj)
+                    {
+                        // 清空当前集合
+                        pendingFiles?.Clear();
+                        state.FilesToUpload.ForEach(file => pendingFiles?.Add(Path.Combine(watchPath, file)));
+                    }
+
                     // 换页
                     this.tabControl.SelectedTab = this.tabPageUpload;
                 }
@@ -363,10 +371,10 @@ namespace AutoUpload.WinForm
                 Dispose();
                 Application.Exit();
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 log.Error($"退出程序时发生错误!", ex);
-            }            
+            }
         }
         #endregion
 
@@ -396,7 +404,7 @@ namespace AutoUpload.WinForm
             this.WindowState = FormWindowState.Normal;
             this.BringToFront();
         }
-                
+
         #endregion
 
         #region 监控事件
@@ -458,12 +466,17 @@ namespace AutoUpload.WinForm
                 log.Info($"创建新的待上传文件列表: {UploadTrackerPaths.PendingPath}");
             }
             log.Info($"去掉当前目录下已不存在的文件");
+
             // 存在待上传并且在当前目录下能找到这些
-            pendingFiles = JsonSerializer.Deserialize<UploadState>
-                (File.ReadAllText(UploadTrackerPaths.PendingPath))?.FilesToUpload
+            lock (_lockObj)
+            {
+                pendingFiles?.Clear();
+                (JsonSerializer.Deserialize<UploadState>(File.ReadAllText(UploadTrackerPaths.PendingPath))?.FilesToUpload
                 .Where(file => currentFiles.Contains(file))
                 .ToHashSet()
-                .ToList() ?? new();
+                .ToList() ?? new())
+                    .ForEach(file => pendingFiles?.Add(file));
+            }
 
             var changedFilePathSplits = changedFilePath.Split("|");
             foreach (var filePath in changedFilePathSplits)
@@ -473,7 +486,14 @@ namespace AutoUpload.WinForm
                 if (!File.Exists(filePath))
                 {
                     // 从待上传列表中移除
-                    if (pendingFiles.Contains(Path.GetFileName(filePath))) pendingFiles.Remove(Path.GetFileName(filePath));
+                    lock (_lockObj)
+                    {
+                        var fileName = Path.GetFileName(filePath);
+                        var tempList = pendingFiles?.ToList();
+                        pendingFiles?.Clear();
+                        tempList?.Where(file => file != fileName).ToList()
+                            .ForEach(file => pendingFiles?.Add(file));
+                    }
                     return;
                 }
 
@@ -482,9 +502,17 @@ namespace AutoUpload.WinForm
                     .Contains(Path.GetExtension(filePath), StringComparer.OrdinalIgnoreCase) ?? false &&
                     // 符合名称规则
                     Regex.Match(Path.GetFileName(filePath), @allowedFileNameRules).Success)
-                    pendingFiles.Add(Path.GetFileName(filePath));
-                // 去重
-                pendingFiles = pendingFiles.ToHashSet().ToList();
+                {
+                    lock (_lockObj)
+                    {
+                        // 添加文件之前先去重
+                        if (!pendingFiles?.Contains(Path.GetFileName(filePath)) ?? true)
+                        {
+                            pendingFiles?.Add(Path.GetFileName(filePath));
+                        }
+                    }
+                }
+
                 log.Info($"添加已修改文件: {Path.GetFileName(filePath)}");
             }
 
@@ -493,7 +521,13 @@ namespace AutoUpload.WinForm
             if (listBoxPendingUpload.InvokeRequired)
             {
                 listBoxPendingUpload.Invoke(new Action(() => listBoxPendingUpload.Items.Clear()));
-                pendingFiles.ForEach(
+                // 使用临时列表避免长时间占用锁
+                List<string> filesToProcess;
+                lock (_lockObj)
+                {
+                    filesToProcess = pendingFiles?.ToList() ?? [];
+                }
+                filesToProcess.ForEach(
                     file => listBoxPendingUpload.Invoke(
                         new Action(() => listBoxPendingUpload.Items.Add(file))
                     )
@@ -502,22 +536,32 @@ namespace AutoUpload.WinForm
             else
             {
                 listBoxPendingUpload.Items.Clear();
-                pendingFiles.ForEach(
+                List<string> filesToProcess;
+                lock (_lockObj)
+                {
+                    filesToProcess = pendingFiles?.ToList() ?? [];
+                }
+                filesToProcess.ForEach(
                     file => listBoxPendingUpload.Items.Add(file)
                 );
             }
 
             log.Info($"更新 {UploadTrackerPaths.PendingPath} 文件");
             // 写入 pending.json 文件,已失效的不会被写入
-            var state = new UploadState
+            lock (_lockObj)
             {
-                AllFilesInFolder = currentFiles,
-                FilesToUpload = pendingFiles
-            };
-            var pendingJson = JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(UploadTrackerPaths.PendingPath, pendingJson);
+                var state = new UploadState
+                {
+                    AllFilesInFolder = currentFiles,
+                    FilesToUpload = pendingFiles?.ToList() ?? []
+                };
 
-            log.Info($"监控更新：总文件 {currentFiles.Count} 个，待上传 {pendingFiles.Count} 个");
+                var pendingJson = JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(UploadTrackerPaths.PendingPath, pendingJson);
+
+            }
+
+            log.Info($"监控更新：总文件 {currentFiles.Count} 个，待上传 {pendingFiles?.Count} 个");
             await UploadPre();
         }
         #endregion
