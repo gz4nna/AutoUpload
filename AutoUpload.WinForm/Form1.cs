@@ -1,20 +1,25 @@
-using AutoUpload.Models;
-using AutoUpload.Models.JsonModels;
-using AutoUpload.Models.ResponseModels;
-using log4net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+
+using AutoUpload.Models;
 using AutoUpload.Models.Helpers;
+using AutoUpload.Models.JsonModels;
+using AutoUpload.Models.ResponseModels;
+
+using log4net;
 
 namespace AutoUpload.WinForm
 {
-    public partial class Form1 : Form
+    public partial class Form1 : Form, IDisposable
     {
         #region 成员变量
         // 日志
         private static readonly ILog log = LogManager.GetLogger(typeof(Form1));
         // 每小时执行一次的 System.Threading.Timer 定时器
         private System.Threading.Timer? timer;
+
+        // 释放资源标记
+        private bool disposed = false;
 
         // 从settings里面取用
         /// <summary>
@@ -353,7 +358,15 @@ namespace AutoUpload.WinForm
         /// <param name="e"></param>
         private void btnExit_Click(object sender, EventArgs e)
         {
-            Application.Exit();
+            try
+            {
+                Dispose();
+                Application.Exit();
+            }
+            catch(Exception ex)
+            {
+                log.Error($"退出程序时发生错误!", ex);
+            }            
         }
         #endregion
 
@@ -383,6 +396,7 @@ namespace AutoUpload.WinForm
             this.WindowState = FormWindowState.Normal;
             this.BringToFront();
         }
+                
         #endregion
 
         #region 监控事件
@@ -535,7 +549,7 @@ namespace AutoUpload.WinForm
             httpClient.DefaultRequestHeaders.Add("X-User-Id", Properties.Settings.Default.XUserId);
             httpClient.DefaultRequestHeaders.Add("X-User-Name", Properties.Settings.Default.XUserName);
             httpClient.DefaultRequestHeaders.Add("X-Timestamp", DateTime.Now.ToString());
-            
+
             // 检查本地的合法性以及服务器上的合法性
             foreach (var file in pendingFiles)
             {
@@ -553,10 +567,10 @@ namespace AutoUpload.WinForm
 
                     #region 获取新型号
                     // 为防止使用协同中不存在的旧型号,首先尝试获取对应的新型号
-                    log.Info($"尝试获取对应的新型号...");                    
+                    log.Info($"尝试获取对应的新型号...");
                     log.Info($"访问地址: {queryURL}?mbomCode={fileNameParts?[0]}");
                     var partsAttrValueQueryResponse = await httpClient.PostAsync(
-                        $"{queryURL}?mbomCode={fileNameParts?[0]}", 
+                        $"{queryURL}?mbomCode={fileNameParts?[0]}",
                         new StringContent(string.Empty));
                     var partsAttrValueQueryResult = await partsAttrValueQueryResponse.Content.ReadAsStringAsync();
 
@@ -620,7 +634,8 @@ namespace AutoUpload.WinForm
                     log.Info($"访问地址: {listURL}?current=1&partsCode={newPartsCode}&size=15");
                     var listResponse = await httpClient.GetAsync($"{listURL}?current=1&partsCode={newPartsCode}&size=15");
                     var listResult = await listResponse.Content.ReadAsStringAsync();
-                    if (!listResponse.IsSuccessStatusCode) {
+                    if (!listResponse.IsSuccessStatusCode)
+                    {
                         //MessageBox.Show($"获取刀模编号失败：{listResponse.StatusCode}\n{listResult}");
                         labelUploadHintPrint($"获取刀模编号失败: {listResponse.StatusCode}");
                         log.Warn($"获取刀模编号失败：{listResponse.StatusCode}\n{listResult}");
@@ -639,7 +654,7 @@ namespace AutoUpload.WinForm
 
                     // 如果是新的编号记下来准备上传
                     // file 中是原本的文件名, queryData 中是新型号的文件名
-                    responseInfos.Add((file, queryData,listData, null, null));
+                    responseInfos.Add((file, queryData, listData, null, null));
                 }
                 catch (Exception ex)
                 {
@@ -665,10 +680,10 @@ namespace AutoUpload.WinForm
 
                     // 文件名和文件内容分开,如果是旧型号在上传的时候替换成第一个接口查出来的新型号
                     // 更正,前面有限制,这里不判断也没事,直接用newPartsCode就行
-                    if (responseInfos.First(response => response?.Item1 == file)?.Item2?.code != "00") 
+                    if (responseInfos.First(response => response?.Item1 == file)?.Item2?.code != "00")
                     {
                         // 如果没有查到数据并且可以上传,则直接使用原文件名
-                        form.Add(fileContent,"files",Path.GetFileName(file));
+                        form.Add(fileContent, "files", Path.GetFileName(file));
                     }
                     // 00 表示成功
                     else
@@ -682,7 +697,7 @@ namespace AutoUpload.WinForm
                                 newPartsCode
                             )
                         );
-                    }                        
+                    }
 
                     // 调用上传接口                                    
 
@@ -832,7 +847,8 @@ namespace AutoUpload.WinForm
                     log.Info($"写入数据成功: {result}");
 
                     // 添加这次上传成功的记录,文件名为空的情况不可能出现
-                    uploadedFiles?.Add(new(){
+                    uploadedFiles?.Add(new()
+                    {
                         // 这里使用原名
                         fileName = Path.GetFileName(responseInfo?.Item1) ?? "",
                         uploadTime = responseInfo?.Item4?.timestamp ?? DateTime.Now.ToString()
@@ -897,6 +913,10 @@ namespace AutoUpload.WinForm
             }
         }
 
+        /// <summary>
+        /// 在上传界面的提示标签中显示输入的内容
+        /// </summary>
+        /// <param name="hint"></param>
         private void labelUploadHintPrint(string hint)
         {
             if (labelUploadHint.InvokeRequired) labelUploadHint.Invoke(new Action(() => labelUploadHint.Text = hint));

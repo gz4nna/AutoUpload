@@ -15,9 +15,19 @@ namespace AutoUpload.WinForm
         /// <param name="disposing">true if managed resources should be disposed; otherwise, false.</param>
         protected override void Dispose(bool disposing)
         {
-            if (disposing && (components != null))
+            if (!disposed)
             {
-                components.Dispose();
+                if (disposing)
+                {
+                    // 释放托管资源
+                    notifyIcon?.Dispose();
+                    timer?.Dispose();
+                    components?.Dispose();
+                    watcher?.Dispose();
+                }
+
+                // 释放非托管资源
+                disposed = true;
             }
             base.Dispose(disposing);
         }
