@@ -1,11 +1,13 @@
+using System.Collections.Concurrent;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+
 using AutoUpload.Models;
 using AutoUpload.Models.Helpers;
 using AutoUpload.Models.JsonModels;
 using AutoUpload.Models.ResponseModels;
+
 using log4net;
-using System.Collections.Concurrent;
-using System.Text.Json;
-using System.Text.RegularExpressions;
 
 namespace AutoUpload.WinForm;
 
@@ -186,19 +188,30 @@ public partial class Form1 : Form, IDisposable
 
                     if (listBoxUploadComplete.InvokeRequired)
                     {
-                        listBoxUploadComplete.Invoke(new Action(() => listBoxUploadComplete.Items.Clear()));
-                        uploadedFiles
-                        ?.GroupBy(file => file.uploadTime)?.Last()?.ToList()
-                        ?.ForEach(
-                            file => listBoxPendingUpload.Invoke(
-                                new Action(() => listBoxPendingUpload.Items.Add(file.fileName))
-                            )
-                        );
+                        listBoxUploadComplete.Invoke(new Action(() =>
+                        {
+                            listBoxUploadComplete.BeginUpdate();
+                            listBoxUploadComplete.SuspendLayout();
+                            uploadedFiles
+                            ?.GroupBy(file => file.uploadTime)
+                            ?.Last()
+                            ?.ToList()
+                            ?.ForEach(file => listBoxUploadComplete.Items.Add(file.fileName));
+                            listBoxUploadComplete.ResumeLayout();
+                            listBoxUploadComplete.EndUpdate();
+                        }));
                     }
                     else
                     {
-                        listBoxUploadComplete.Items.Clear();
-                        uploadedFiles?.ToList()?.ForEach(file => listBoxUploadComplete.Items.Add(file.fileName));
+                        listBoxUploadComplete.BeginUpdate();
+                        listBoxUploadComplete.SuspendLayout();
+                        uploadedFiles
+                        ?.GroupBy(file => file.uploadTime)
+                        ?.Last()
+                        ?.ToList()
+                        ?.ForEach(file => listBoxUploadComplete.Items.Add(file.fileName));
+                        listBoxUploadComplete.ResumeLayout();
+                        listBoxUploadComplete.EndUpdate();
                     }
                 }
                 catch
@@ -429,7 +442,7 @@ public partial class Form1 : Form, IDisposable
         {
             log.Warn($"没有找到待上传文件列表: {UploadTrackerPaths.PendingPath}");
             // 如果不存在就创建一个新的
-            File.WriteAllText(
+            await File.WriteAllTextAsync(
                 UploadTrackerPaths.PendingPath,
                 JsonSerializer.Serialize(new UploadState
                 {
@@ -491,34 +504,38 @@ public partial class Form1 : Form, IDisposable
         }
 
         log.Info("在列表框中显示待上传文件列表");
-        // 在列表框中显示待上传文件列表
-        if (listBoxPendingUpload.InvokeRequired)
+        // 使用临时列表避免长时间占用锁
+        List<string> filesToProcess;
+        lock (_lockObj)
         {
-            listBoxPendingUpload.Invoke(new Action(() => listBoxPendingUpload.Items.Clear()));
-            // 使用临时列表避免长时间占用锁
-            List<string> filesToProcess;
-            lock (_lockObj)
-            {
-                filesToProcess = pendingFiles?.ToList() ?? [];
-            }
-            filesToProcess.ForEach(
-                file => listBoxPendingUpload.Invoke(
-                    new Action(() => listBoxPendingUpload.Items.Add(file))
-                )
-            );
+            filesToProcess = pendingFiles?.ToList() ?? [];
         }
-        else
+        if (filesToProcess?.Count != 0)
         {
-            listBoxPendingUpload.Items.Clear();
-            List<string> filesToProcess;
-            lock (_lockObj)
+            // 在列表框中显示待上传文件列表
+            if (listBoxPendingUpload.InvokeRequired)
             {
-                filesToProcess = pendingFiles?.ToList() ?? [];
+                listBoxPendingUpload.Invoke(new Action(() =>
+                {
+                    listBoxPendingUpload.BeginUpdate();
+                    listBoxPendingUpload.SuspendLayout();
+                    listBoxPendingUpload.Items.Clear();
+                    filesToProcess?.ForEach(file => listBoxPendingUpload.Items.Add(file));
+                    listBoxPendingUpload.ResumeLayout();
+                    listBoxPendingUpload.EndUpdate();
+                }));
             }
-            filesToProcess.ForEach(
-                file => listBoxPendingUpload.Items.Add(file)
-            );
+            else
+            {
+                listBoxPendingUpload.BeginUpdate();
+                listBoxPendingUpload.SuspendLayout();
+                listBoxPendingUpload.Items.Clear();
+                filesToProcess?.ForEach(file => listBoxPendingUpload.Items.Add(file));
+                listBoxPendingUpload.ResumeLayout();
+                listBoxPendingUpload.EndUpdate();
+            }
         }
+
 
         log.Info($"更新 {UploadTrackerPaths.PendingPath} 文件");
         // 写入 pending.json 文件,已失效的不会被写入
@@ -532,7 +549,6 @@ public partial class Form1 : Form, IDisposable
 
             var pendingJson = JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(UploadTrackerPaths.PendingPath, pendingJson);
-
         }
 
         log.Info($"监控更新：总文件 {currentFiles.Count} 个，待上传 {pendingFiles?.Count} 个");
@@ -586,6 +602,7 @@ public partial class Form1 : Form, IDisposable
                     continue;
                 }
 
+                // 检查文件名是否符合规则
                 try
                 {
                     // 获取文件名并拆分,文件名中包含型号和规格
@@ -648,15 +665,18 @@ public partial class Form1 : Form, IDisposable
                         requestInfo: $"获取刀模编号 - partsCode: {newPartsCode}"
                     );
 
+                    // 如果获取刀模编号失败,则跳过上传
                     if (listData?.code != "00")
                     {
                         log.Warn($"获取刀模编号失败: {listData?.errors} {listData?.message}");
                         continue;
                     }
 
+                    // 如果没有找到对应的刀模编号,则跳过上传
                     if (listData?.data?.records?.All(record => record?.specification != fileNameParts?[1]) ?? true)
                     {
                         log.Warn($"没有找到对应的刀模编号,请检查型号和规格是否正确: {newPartsCode} {fileNameParts?[1]}");
+                        LabelUploadHintPrint($"没有找到对应的刀模编号,请检查型号和规格是否已录入: {newPartsCode} {fileNameParts?[1]}");
                         continue;
                     }
                     #endregion
@@ -780,7 +800,7 @@ public partial class Form1 : Form, IDisposable
                 if (!File.Exists(monthlyRecord))
                 {
                     // 如果不存在就创建一个新的
-                    File.WriteAllText(monthlyRecord, "[]");
+                    await File.WriteAllTextAsync(monthlyRecord, "[]");
                     log.Info($"创建新的上传记录文件: {monthlyRecord}");
                 }
                 try
@@ -860,43 +880,55 @@ public partial class Form1 : Form, IDisposable
                 // 在列表框中显示已上传文件列表
                 if (listBoxUploadComplete.InvokeRequired)
                 {
-                    listBoxUploadComplete.Invoke(new Action(() => listBoxUploadComplete.Items.Clear()));
-                    uploadedFiles?.ForEach(
-                        file => listBoxUploadComplete.Invoke(
-                            new Action(() => listBoxUploadComplete.Items.Add(Path.GetFileName(file.fileName) ?? string.Empty))
-                        )
-                    );
+                    listBoxUploadComplete.Invoke(new Action(() =>
+                    {
+                        listBoxUploadComplete.BeginUpdate();
+                        listBoxUploadComplete.SuspendLayout();
+                        listBoxUploadComplete.Items.Clear();
+                        uploadedFiles?.ForEach(file => listBoxUploadComplete.Items.Add(Path.GetFileName(file.fileName)));
+                        listBoxUploadComplete.ResumeLayout();
+                        listBoxUploadComplete.EndUpdate();
+                    }));
                 }
                 else
                 {
+                    listBoxUploadComplete.BeginUpdate();
+                    listBoxUploadComplete.SuspendLayout();
                     listBoxUploadComplete.Items.Clear();
-                    uploadedFiles?.ForEach(
-                        file => listBoxUploadComplete.Items.Add(Path.GetFileName(file.fileName) ?? string.Empty)
-                    );
+                    uploadedFiles?.ForEach(file => listBoxUploadComplete.Items.Add(Path.GetFileName(file.fileName)));
+                    listBoxUploadComplete.ResumeLayout();
+                    listBoxUploadComplete.EndUpdate();
                 }
 
                 // 在列表框中删除已上传文件列表
                 if (listBoxPendingUpload.InvokeRequired)
                 {
-                    responseInfos?
-                        .Where(file => file?.Item1 != null).ToList()
-                        .ForEach(file => listBoxPendingUpload.Invoke(
-                            new Action(() => listBoxPendingUpload.Items.Remove(Path.GetFileName(file?.Item1) ?? ""))
-                        )
-                    );
+                    listBoxUploadComplete.Invoke(new Action(() =>
+                    {
+                        listBoxPendingUpload.BeginUpdate();
+                        listBoxPendingUpload.SuspendLayout();
+                        responseInfos
+                        ?.Where(file => file?.Item1 != null).ToList()
+                        ?.ForEach(file => listBoxPendingUpload.Items.Remove(Path.GetFileName(file?.Item1) ?? ""));
+                        listBoxUploadComplete.ResumeLayout();
+                        listBoxUploadComplete.EndUpdate();
+                    }));
                 }
                 else
                 {
-                    responseInfos?
-                        .Where(file => file?.Item1 != null).ToList()
-                        .ForEach(file => listBoxPendingUpload.Items.Remove(Path.GetFileName(file?.Item1) ?? "")
-                    );
+                    listBoxPendingUpload.BeginUpdate();
+                    listBoxPendingUpload.SuspendLayout();
+                    responseInfos
+                    ?.Where(file => file?.Item1 != null).ToList()
+                    ?.ForEach(file => listBoxPendingUpload.Items.Remove(Path.GetFileName(file?.Item1) ?? ""));
+                    listBoxUploadComplete.ResumeLayout();
+                    listBoxUploadComplete.EndUpdate();
                 }
 
                 // 写回 pending.json
-                File.WriteAllText(UploadTrackerPaths.PendingPath, JsonSerializer.Serialize(pendingState, new JsonSerializerOptions { WriteIndented = true }));
+                await File.WriteAllTextAsync(UploadTrackerPaths.PendingPath, JsonSerializer.Serialize(pendingState, new JsonSerializerOptions { WriteIndented = true }));
                 // 写入已上传文件
-                File.WriteAllText(monthlyRecord, JsonSerializer.Serialize(uploadedFiles, new JsonSerializerOptions { WriteIndented = true }));
+                await File.WriteAllTextAsync(monthlyRecord, JsonSerializer.Serialize(uploadedFiles, new JsonSerializerOptions { WriteIndented = true }));
                 log.Info($"更新 uploaded.json 文件成功，已添加 {uploadedFiles?.Count} 个文件名");
                 LabelUploadHintPrint($"上传成功，已添加 {uploadedFiles?.Count} 个文件,{listBoxPendingUpload.Items.Count}个上传失败");
                 #endregion
@@ -927,9 +959,30 @@ public partial class Form1 : Form, IDisposable
     }
 
     /// <summary>
-    /// 验证设置是否有效，确保所有必要的URL都已配置。
+    /// 确保设置的URL和其他参数有效。
     /// </summary>
     /// <returns></returns>
-    private bool ValidateSettings() => !string.IsNullOrEmpty(targetURL) && !string.IsNullOrEmpty(writeURL) && !string.IsNullOrEmpty(queryURL) && !string.IsNullOrEmpty(listURL);
+    private bool ValidateSettings()
+    {
+        bool valid =
+        !string.IsNullOrEmpty(targetURL) && Uri.TryCreate(targetURL, UriKind.Absolute, out _) &&
+        !string.IsNullOrEmpty(writeURL) && Uri.TryCreate(writeURL, UriKind.Absolute, out _) &&
+        !string.IsNullOrEmpty(queryURL) && Uri.TryCreate(queryURL, UriKind.Absolute, out _) &&
+        !string.IsNullOrEmpty(listURL) && Uri.TryCreate(listURL, UriKind.Absolute, out _) &&
+        !string.IsNullOrEmpty(Properties.Settings.Default.XTenantId) &&
+        !string.IsNullOrEmpty(Properties.Settings.Default.XUserId) &&
+        allowedExtensions != null && allowedExtensions.Length > 0 &&
+        !string.IsNullOrEmpty(allowedFileNameRules);
+        if (!valid)
+        {
+            log.Error("配置错误: 目标URL、写入URL、查询URL或列表URL未设置");
+            LabelUploadHintPrint("配置错误，请检查设置");
+        }
+        else
+        {
+            log.Info("配置验证通过");
+        }
+        return valid;
+    }
     #endregion
 }
