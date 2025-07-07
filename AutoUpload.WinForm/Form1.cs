@@ -7,948 +7,929 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-namespace AutoUpload.WinForm
+namespace AutoUpload.WinForm;
+
+public partial class Form1 : Form, IDisposable
 {
-    public partial class Form1 : Form, IDisposable
+    #region 成员变量
+    // 日志
+    private static readonly ILog log = LogManager.GetLogger(typeof(Form1));
+    // 每小时执行一次的 System.Threading.Timer 定时器
+    private System.Threading.Timer? timer;
+
+    // 释放资源标记
+    private bool disposed = false;
+
+    // 从settings里面取用
+    /// <summary>
+    /// 上传文件的后缀名集合
+    /// </summary>
+    private string[]? allowedExtensions;
+    /// <summary>
+    /// 文件名合法规则
+    /// </summary>
+    private string? allowedFileNameRules;
+
+    // 私有成员变量
+    /// <summary>
+    /// 本地文件夹监视器
+    /// </summary>
+    private DelayFileSystemWatcherHelper? watcher;
+    /// <summary>
+    /// 待上传的文件列表
+    /// </summary>
+    private ConcurrentBag<string>? pendingFiles = new();
+    private readonly object _lockObj = new();
+    /// <summary>
+    /// 上传的目标URL
+    /// </summary>
+    private string? targetURL;
+    /// <summary>
+    /// 写入的URL
+    /// </summary>
+    private string? writeURL;
+    /// <summary>
+    /// 根据旧型号查找新型号的接口地址
+    /// </summary>
+    private string? queryURL;
+    /// <summary>
+    /// 第一次上传的时候用来查询 mouldSizeId 的接口地址
+    /// </summary>
+    private string? listURL;
+    #endregion
+
+    #region 初始化
+    /// <summary>
+    /// 初始化主要窗体的实例,并读取设置和绑定控件。
+    /// </summary>
+    public Form1()
     {
-        #region 成员变量
-        // 日志
-        private static readonly ILog log = LogManager.GetLogger(typeof(Form1));
-        // 每小时执行一次的 System.Threading.Timer 定时器
-        private System.Threading.Timer? timer;
+        InitializeComponent();
+        Init();
+        InitWatcher(txtPath.Text);
+    }
 
-        // 释放资源标记
-        private bool disposed = false;
+    /// <summary>
+    /// 初始化主要窗体的实例,并读取设置和绑定控件。
+    /// </summary>
+    /// <returns></returns>
+    public bool Init()
+    {
+        log.Info($"初始化主窗口...");
 
-        // 从settings里面取用
-        /// <summary>
-        /// 上传文件的后缀名集合
-        /// </summary>
-        private string[]? allowedExtensions;
-        /// <summary>
-        /// 文件名合法规则
-        /// </summary>
-        private string? allowedFileNameRules;
-
-        // 私有成员变量
-        /// <summary>
-        /// 本地文件夹监视器
-        /// </summary>
-        private DelayFileSystemWatcherHelper? watcher;
-        /// <summary>
-        /// 待上传的文件列表
-        /// </summary>
-        private ConcurrentBag<string>? pendingFiles = new();
-        private readonly object _lockObj = new();
-        /// <summary>
-        /// 上传的目标URL
-        /// </summary>
-        private string? targetURL;
-        /// <summary>
-        /// 写入的URL
-        /// </summary>
-        private string? writeURL;
-        /// <summary>
-        /// 根据旧型号查找新型号的接口地址
-        /// </summary>
-        private string? queryURL;
-        /// <summary>
-        /// 第一次上传的时候用来查询 mouldSizeId 的接口地址
-        /// </summary>
-        private string? listURL;
-        #endregion
-
-        #region 初始化
-        /// <summary>
-        /// 初始化主要窗体的实例,并读取设置和绑定控件。
-        /// </summary>
-        public Form1()
+        try
         {
-            InitializeComponent();
-            Init();
-            InitWatcher(txtPath.Text);
-        }
-
-        /// <summary>
-        /// 初始化主要窗体的实例,并读取设置和绑定控件。
-        /// </summary>
-        /// <returns></returns>
-        public bool Init()
-        {
-            log.Info($"初始化主窗口...");
-
-            try
+            #region 读取设置
+            log.Info($"读取配置文件: <LastPath>...");
+            var lastPath = Properties.Settings.Default.LastPath;
+            if (Directory.Exists(lastPath))
             {
-                #region 读取设置
-                log.Info($"读取配置文件: <LastPath>...");
-                var lastPath = Properties.Settings.Default.LastPath;
-                if (Directory.Exists(lastPath))
-                {
-                    txtPath.Text = lastPath;
-                    log.Info($"读取配置文件: <LastPath> : {lastPath}");
-                    labelPathHint.Text = $"当前监控目录: {lastPath}";
-                }
-                else
-                {
-                    MessageBox.Show($"{lastPath} 不存在, 请重新选择目录!", "读取设置出错", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    log.Warn($"{lastPath} 不存在, 请重新选择目录!");
-                }
-
-                log.Info($"读取配置文件: <TargetURL>...");
-                targetURL = Properties.Settings.Default.TargetURL;
-                log.Info($"读取配置文件: <TargetURL> {targetURL}");
-
-                log.Info($"读取配置文件: <WriteURL>...");
-                writeURL = Properties.Settings.Default.WriteURL;
-                log.Info($"读取配置文件: <WriteURL> : {writeURL}");
-
-                log.Info($"读取配置文件: <QueryURL>...");
-                queryURL = Properties.Settings.Default.QueryURL;
-                log.Info($"读取配置文件: <QueryURL> : {queryURL}");
-
-                log.Info($"读取配置文件: <ListURL>...");
-                listURL = Properties.Settings.Default.ListURL;
-                log.Info($"读取配置文件: <ListURL> : {listURL}");
-
-                log.Info($"读取配置文件: <AllowedExtensions>...");
-                allowedExtensions = Properties.Settings.Default.AllowedExtensions.Split("|");
-                log.Info($"读取配置文件: <allowedExtensions> : {Properties.Settings.Default.AllowedExtensions}");
-
-                log.Info($"读取配置文件: <AllowedFileNameRules>...");
-                allowedFileNameRules = Properties.Settings.Default.AllowedFileNameRules;
-                log.Info($"读取配置文件: <AllowedFileNameRules> : {allowedFileNameRules}");
-                #endregion
-
-                #region 控件初始化
-                log.Info($"初始化控件...");
-#if DEBUG
-                this.txtPath.ReadOnly = false;
-#else
-                this.txtPath.ReadOnly = true; // 发布版本中禁止直接在文本框中修改路径,可以通过UI设置来修改
-#endif
-
-                this.notifyIcon = new NotifyIcon();
-                this.contextMenuStrip = new ContextMenuStrip();
-                this.menuShow = new ToolStripMenuItem("主界面");
-                this.menuExit = new ToolStripMenuItem("退出");
-
-                this.contextMenuStrip.Items.AddRange(new ToolStripItem[] {
-                    this.menuShow,
-                    this.menuExit
-                });
-
-                this.notifyIcon.Icon = SystemIcons.Application;
-                this.notifyIcon.ContextMenuStrip = this.contextMenuStrip;
-                this.notifyIcon.Visible = true;
-                this.notifyIcon.Text = "AutoLoad By GZ4nna";
-                this.notifyIcon.DoubleClick += (s, e) => ShowMainWindow();
-
-                this.menuShow.Click += (s, e) => ShowMainWindow();
-                this.menuExit.Click += (s, e) => Application.Exit();
-
-                timer = new System.Threading.Timer(
-                    async _ => await UploadPre(),
-                    null,
-                    TimeSpan.Zero, // 立即执行
-                    TimeSpan.FromHours(1) // 每小时执行一次
-                );
-                log.Info($"初始化控件完成!");
-
-                // 在当前目录下创建一个upload文件夹
-                if (!Directory.Exists(UploadTrackerPaths.UploadFolder))
-                {
-                    Directory.CreateDirectory(UploadTrackerPaths.UploadFolder);
-                    log.Info($"创建上传文件夹: {UploadTrackerPaths.UploadFolder}");
-                }
-                // 加载已上传的文件列表
-                var uploadedFiles = new HashSet<UploadJsonModel>();
-
-                // 在文件夹中读取全部上传文件
-                if (Directory.Exists(UploadTrackerPaths.UploadFolder))
-                {
-                    try
-                    {
-                        // 每个文件
-                        foreach (var file in Directory.EnumerateFiles(UploadTrackerPaths.UploadFolder))
-                        {
-                            var fileName = Path.GetFileName(file);
-                            // 如果是这个月的
-                            // UploadRecords_202506.json
-                            if (!fileName.Equals($"UploadRecords_{DateTime.Now.ToString("yyyyMM")}.json")) continue;
-
-                            var uploadedJson = File.ReadAllText(file);
-                            var tmpfile = JsonSerializer.Deserialize<List<UploadJsonModel>>(uploadedJson);
-                            // 只要不是空
-                            if (tmpfile == null || tmpfile.Count == 0) continue;
-                            // 塞到上传文件列表中
-                            tmpfile.ForEach(fileName => uploadedFiles.Add(fileName));
-                        }
-
-                        if (listBoxUploadComplete.InvokeRequired)
-                        {
-                            listBoxUploadComplete.Invoke(new Action(() => listBoxUploadComplete.Items.Clear()));
-                            uploadedFiles
-                            ?.GroupBy(file => file.uploadTime)?.Last()?.ToList()
-                            ?.ForEach(
-                                file => listBoxPendingUpload.Invoke(
-                                    new Action(() => listBoxPendingUpload.Items.Add(file.fileName))
-                                )
-                            );
-                        }
-                        else
-                        {
-                            listBoxUploadComplete.Items.Clear();
-                            uploadedFiles?.ToList()?.ForEach(file => listBoxUploadComplete.Items.Add(file.fileName));
-                        }
-                    }
-                    catch
-                    {
-                        log.Warn("uploaded.json 读取失败，已重置为空");
-                        labelUploadHintPrint("uploaded.json 读取失败，已重置为空");
-                    }
-                }
-                #endregion
-            }
-            catch (Exception ex)
-            {
-                log.Error($"初始化主窗体失败: {ex.Message}");
-            }
-            log.Info($"初始化主窗体完成!");
-            return true;
-        }
-
-        /// <summary>
-        /// 初始化文件监视器，监控指定路径的文件变化事件。
-        /// </summary>
-        /// <param name="path">需要监视的目录</param>
-        private void InitWatcher(string path)
-        {
-            // 清除之前的监视器
-            watcher?.Dispose();
-
-            // 创建新的监视器实例
-            watcher = new DelayFileSystemWatcherHelper(path, "*.*", 800);
-
-            watcher.DelayChanged += (changedFile) =>
-            {
-                // 这里是延时合并后的回调
-                this.Invoke(new Action(() => UpdateFileRecord(changedFile ?? "")));
-            };
-            watcher.Start();
-        }
-        #endregion
-
-        #region 控件事件
-        /// <summary>
-        /// 设置按钮点击事件处理，切换到设置页面。
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void btnSetting_Click(object sender, EventArgs e)
-        {
-            log.Info($"切换到设置页面");
-            this.tabControl.SelectedTab = this.tabPageSetting;
-        }
-
-        /// <summary>
-        /// 点击浏览按钮选择一个目录进行监控。
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void btnBrowsePath_Click(object sender, EventArgs e)
-        {
-            log.Info($"浏览按钮被点击，选择目录...");
-            labelPathHint.Text.Remove(0, labelPathHint.Text.Length); // 清空提示文本
-
-            using var folderBrowserDialog = new FolderBrowserDialog();
-            if (folderBrowserDialog.ShowDialog() == DialogResult.OK)
-            {
-                txtPath.Text = folderBrowserDialog.SelectedPath;
-                // 保存路径到设置中
-                Properties.Settings.Default.LastPath = folderBrowserDialog.SelectedPath;
-                Properties.Settings.Default.Save();
-                log.Info($"选择路径: {folderBrowserDialog.SelectedPath}");
-                labelPathHint.Text = $"当前监控目录: {folderBrowserDialog.SelectedPath}";
-                InitWatcher(folderBrowserDialog.SelectedPath);
-            }
-        }
-
-        /// <summary>
-        /// 日志按钮点击事件处理，切换到日志页面。
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void btnLog_Click(object sender, EventArgs e)
-        {
-            log.Info($"切换到日志页面");
-            this.tabControl.SelectedTab = this.tabPageLog;
-            // 打开指定目录
-            if (Directory.Exists(UploadTrackerPaths.LogFolder))
-            {
-                System.Diagnostics.Process.Start("explorer.exe", UploadTrackerPaths.LogFolder);
-                log.Info($"打开日志目录: {UploadTrackerPaths.LogFolder}");
+                txtPath.Text = lastPath;
+                log.Info($"读取配置文件: <LastPath> : {lastPath}");
+                labelPathHint.Text = $"当前监控目录: {lastPath}";
             }
             else
             {
-                //MessageBox.Show($"日志目录不存在: {UploadTrackerPaths.LogFolder}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                log.Error($"日志目录不存在: {UploadTrackerPaths.LogFolder}");
-            }
-        }
-
-        /// <summary>
-        /// 上传按钮点击事件处理。
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private async void btnUpload_Click(object sender, EventArgs e)
-        {
-            string watchPath = txtPath.Text;
-
-            // 检查路径是否存在
-            log.Info($"上传事件开始");
-            log.Info($"检查路径是否存在: {watchPath}");
-            if (File.Exists(UploadTrackerPaths.PendingPath))
-            {
-                try
-                {
-                    var pendingJson = await File.ReadAllTextAsync(UploadTrackerPaths.PendingPath);
-                    var state = JsonSerializer.Deserialize<UploadState>(pendingJson);
-                    if (state == null || state.FilesToUpload.Count == 0)
-                    {
-                        log.Warn("没有待上传的文件，跳过上传");
-                        //MessageBox.Show("没有待上传的文件");
-                        labelUploadHintPrint("没有待上传的文件");
-                        return;
-                    }
-
-                    // 恢复成绝对路径
-                    lock (_lockObj)
-                    {
-                        // 清空当前集合
-                        pendingFiles?.Clear();
-                        state.FilesToUpload.ForEach(file => pendingFiles?.Add(Path.Combine(watchPath, file)));
-                    }
-
-                    // 换页
-                    this.tabControl.SelectedTab = this.tabPageUpload;
-                }
-                catch (Exception ex)
-                {
-#if DEBUG
-                    MessageBox.Show("读取待上传文件列表失败：" + ex.Message);
-#elif RELEASE
-                    labelUploadHintPrint("读取待上传文件列表失败");
-#endif
-                    log.Error("读取待上传文件列表失败", ex);
-                    // 换页
-                    this.tabControl.SelectedTab = this.tabPageUpload;
-                    return;
-                }
-            }
-#if DEBUG
-            //return;
-#endif
-            await UploadPre();
-        }
-
-        /// <summary>
-        /// 上传前的预处理方法，调用 Upload 方法进行文件上传操作。
-        /// </summary>
-        /// <returns></returns>
-        private async Task UploadPre() => await Upload();
-
-        /// <summary>
-        /// 退出按钮点击事件处理，关闭应用程序。
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void btnExit_Click(object sender, EventArgs e)
-        {
-            try
-            {
-                Dispose();
-                Application.Exit();
-            }
-            catch (Exception ex)
-            {
-                log.Error($"退出程序时发生错误!", ex);
-            }
-        }
-        #endregion
-
-        #region 窗体事件
-        /// <summary>
-        /// 关闭时最小化
-        /// </summary>
-        /// <param name="e"></param>
-        protected override void OnFormClosing(FormClosingEventArgs e)
-        {
-            // 如果是用户关闭窗口，则最小化到托盘
-            if (e.CloseReason == CloseReason.UserClosing)
-            {
-                e.Cancel = true;
-                this.Hide();
-                notifyIcon.ShowBalloonTip(1000, "后台运行中", "程序已最小化至托盘", ToolTipIcon.Info);
-            }
-            base.OnFormClosing(e);
-        }
-
-        /// <summary>
-        /// 点击托盘图标时显示主窗口。
-        /// </summary>
-        private void ShowMainWindow()
-        {
-            this.Show();
-            this.WindowState = FormWindowState.Normal;
-            this.BringToFront();
-        }
-
-        #endregion
-
-        #region 监控事件
-        /// <summary>
-        /// 文件重命名
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void OnRenamed(object sender, RenamedEventArgs e)
-        {
-            log.Info($"[FileRenamed] {e.ChangeType}: {e.FullPath}");
-            UpdateFileRecord(e.FullPath);
-        }
-
-        /// <summary>
-        /// 文件发生修改
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void OnChanged(object sender, FileSystemEventArgs e)
-        {
-            log.Info($"[FileChanged] {e.ChangeType}: {e.FullPath}");
-            // MessageBox.Show($"[FileChanged] {e.ChangeType}: {e.FullPath}");
-            UpdateFileRecord(e.FullPath);
-        }
-
-        /// <summary>
-        /// 更新文件记录方法，处理文件变化事件并更新待上传文件列表。
-        /// </summary>
-        /// <param name="changedFilePath"></param>
-        private async void UpdateFileRecord(string changedFilePath = "")
-        {
-            log.Info($"UpdateFileRecord: {changedFilePath}");
-            // 检查路径是否存在
-            string watchPath = txtPath.Text;
-            var currentFiles = Directory.EnumerateFiles(watchPath)
-                .Select(file => Path.GetFileName(file))
-                .Where(file => allowedExtensions?
-                    .Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase) ?? false &&
-                    Regex.Match(Path.GetFileName(file), @allowedFileNameRules).Success)
-                .ToList();
-            log.Info($"已加载 {watchPath} 下所有文件,共 {currentFiles.Count} 个符合规则的文件");
-
-            // 先放入已有待上传
-            log.Info($"读取待上传文件列表: {UploadTrackerPaths.PendingPath}");
-            // 不存在时创建一个新的
-            if (!File.Exists(UploadTrackerPaths.PendingPath))
-            {
-                log.Warn($"没有找到待上传文件列表: {UploadTrackerPaths.PendingPath}");
-                // 如果不存在就创建一个新的
-                File.WriteAllText(
-                    UploadTrackerPaths.PendingPath,
-                    JsonSerializer.Serialize(new UploadState
-                    {
-                        AllFilesInFolder = currentFiles,
-                        FilesToUpload = new List<string>()
-                    }, new JsonSerializerOptions { WriteIndented = true }
-                ));
-                log.Info($"创建新的待上传文件列表: {UploadTrackerPaths.PendingPath}");
-            }
-            log.Info($"去掉当前目录下已不存在的文件");
-
-            // 存在待上传并且在当前目录下能找到这些
-            lock (_lockObj)
-            {
-                pendingFiles?.Clear();
-                (JsonSerializer.Deserialize<UploadState>(File.ReadAllText(UploadTrackerPaths.PendingPath))?.FilesToUpload
-                .Where(file => currentFiles.Contains(file))
-                .ToHashSet()
-                .ToList() ?? new())
-                    .ForEach(file => pendingFiles?.Add(file));
+                MessageBox.Show($"{lastPath} 不存在, 请重新选择目录!", "读取设置出错", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                log.Warn($"{lastPath} 不存在, 请重新选择目录!");
             }
 
-            var changedFilePathSplits = changedFilePath.Split("|");
-            foreach (var filePath in changedFilePathSplits)
-            {
-                log.Info($"处理文件变化: {filePath}");
-                // 排除掉被触发时为删除文件的情况
-                if (!File.Exists(filePath))
-                {
-                    // 从待上传列表中移除
-                    lock (_lockObj)
-                    {
-                        var fileName = Path.GetFileName(filePath);
-                        var tempList = pendingFiles?.ToList();
-                        pendingFiles?.Clear();
-                        tempList?.Where(file => file != fileName).ToList()
-                            .ForEach(file => pendingFiles?.Add(file));
-                    }
-                    return;
-                }
+            log.Info($"读取配置文件: <TargetURL>...");
+            targetURL = Properties.Settings.Default.TargetURL;
+            log.Info($"读取配置文件: <TargetURL> {targetURL}");
 
-                // 添加文件之前判断是否符合后缀规则和命名规则
-                if (allowedExtensions?
-                    .Contains(Path.GetExtension(filePath), StringComparer.OrdinalIgnoreCase) ?? false &&
-                    // 符合名称规则
-                    Regex.Match(Path.GetFileName(filePath), @allowedFileNameRules).Success)
-                {
-                    lock (_lockObj)
-                    {
-                        // 添加文件之前先去重
-                        if (!pendingFiles?.Contains(Path.GetFileName(filePath)) ?? true)
-                        {
-                            pendingFiles?.Add(Path.GetFileName(filePath));
-                        }
-                    }
-                }
+            log.Info($"读取配置文件: <WriteURL>...");
+            writeURL = Properties.Settings.Default.WriteURL;
+            log.Info($"读取配置文件: <WriteURL> : {writeURL}");
 
-                log.Info($"添加已修改文件: {Path.GetFileName(filePath)}");
-            }
+            log.Info($"读取配置文件: <QueryURL>...");
+            queryURL = Properties.Settings.Default.QueryURL;
+            log.Info($"读取配置文件: <QueryURL> : {queryURL}");
 
-            log.Info("在列表框中显示待上传文件列表");
-            // 在列表框中显示待上传文件列表
-            if (listBoxPendingUpload.InvokeRequired)
-            {
-                listBoxPendingUpload.Invoke(new Action(() => listBoxPendingUpload.Items.Clear()));
-                // 使用临时列表避免长时间占用锁
-                List<string> filesToProcess;
-                lock (_lockObj)
-                {
-                    filesToProcess = pendingFiles?.ToList() ?? [];
-                }
-                filesToProcess.ForEach(
-                    file => listBoxPendingUpload.Invoke(
-                        new Action(() => listBoxPendingUpload.Items.Add(file))
-                    )
-                );
-            }
-            else
-            {
-                listBoxPendingUpload.Items.Clear();
-                List<string> filesToProcess;
-                lock (_lockObj)
-                {
-                    filesToProcess = pendingFiles?.ToList() ?? [];
-                }
-                filesToProcess.ForEach(
-                    file => listBoxPendingUpload.Items.Add(file)
-                );
-            }
+            log.Info($"读取配置文件: <ListURL>...");
+            listURL = Properties.Settings.Default.ListURL;
+            log.Info($"读取配置文件: <ListURL> : {listURL}");
 
-            log.Info($"更新 {UploadTrackerPaths.PendingPath} 文件");
-            // 写入 pending.json 文件,已失效的不会被写入
-            lock (_lockObj)
-            {
-                var state = new UploadState
-                {
-                    AllFilesInFolder = currentFiles,
-                    FilesToUpload = pendingFiles?.ToList() ?? []
-                };
+            log.Info($"读取配置文件: <AllowedExtensions>...");
+            allowedExtensions = Properties.Settings.Default.AllowedExtensions.Split("|");
+            log.Info($"读取配置文件: <allowedExtensions> : {Properties.Settings.Default.AllowedExtensions}");
 
-                var pendingJson = JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(UploadTrackerPaths.PendingPath, pendingJson);
-
-            }
-
-            log.Info($"监控更新：总文件 {currentFiles.Count} 个，待上传 {pendingFiles?.Count} 个");
-            await UploadPre();
-        }
-        #endregion
-
-        #region 上传逻辑
-        /// <summary>
-        /// 上传方法，处理文件上传逻辑。
-        /// </summary>
-        /// <returns></returns>
-        private async Task Upload()
-        {
-            if (pendingFiles == null || pendingFiles.Count == 0) return;
-
-            #region 变量
-            // 构造待上传文件列表
-            string watchPath = txtPath.Text;
-            List<(string?, MouldSizesCutterResponseModel?, MouldSizesListResponseModel?, FileStorageUploadParamResponseModel?, MouldSizesCutterRequestModel?)?>? responseInfos = new();
-            var newPartsCode = "";
+            log.Info($"读取配置文件: <AllowedFileNameRules>...");
+            allowedFileNameRules = Properties.Settings.Default.AllowedFileNameRules;
+            log.Info($"读取配置文件: <AllowedFileNameRules> : {allowedFileNameRules}");
             #endregion
 
-            try
+            #region 控件初始化
+            log.Info($"初始化控件...");
+#if DEBUG
+            this.txtPath.ReadOnly = false;
+#else
+            this.txtPath.ReadOnly = true; // 发布版本中禁止直接在文本框中修改路径,可以通过UI设置来修改
+#endif
+
+            this.notifyIcon = new NotifyIcon();
+            this.contextMenuStrip = new ContextMenuStrip();
+            this.menuShow = new ToolStripMenuItem("主界面");
+            this.menuExit = new ToolStripMenuItem("退出");
+
+            this.contextMenuStrip.Items.AddRange(new ToolStripItem[] {
+                this.menuShow,
+                this.menuExit
+            });
+
+            this.notifyIcon.Icon = SystemIcons.Application;
+            this.notifyIcon.ContextMenuStrip = this.contextMenuStrip;
+            this.notifyIcon.Visible = true;
+            this.notifyIcon.Text = "AutoLoad By GZ4nna";
+            this.notifyIcon.DoubleClick += (s, e) => ShowMainWindow();
+
+            this.menuShow.Click += (s, e) => ShowMainWindow();
+            this.menuExit.Click += (s, e) => Application.Exit();
+
+            timer = new System.Threading.Timer(
+                async _ => await UploadPre(),
+                null,
+                TimeSpan.Zero, // 立即执行
+                TimeSpan.FromHours(1) // 每小时执行一次
+            );
+            log.Info($"初始化控件完成!");
+
+            // 在当前目录下创建一个upload文件夹
+            if (!Directory.Exists(UploadTrackerPaths.UploadFolder))
             {
-                // 配置项检查
-                if (!ValidateSettings())
-                {
-                    log.Error("URL配置无效");
-                    labelUploadHintPrint("配置错误，请检查设置");
-                    return;
-                }
+                Directory.CreateDirectory(UploadTrackerPaths.UploadFolder);
+                log.Info($"创建上传文件夹: {UploadTrackerPaths.UploadFolder}");
+            }
+            // 加载已上传的文件列表
+            var uploadedFiles = new HashSet<UploadJsonModel>();
 
-                // 设定 HttpClient 的请求头
-                HttpRetryHelper.ConfigureHttpClient(
-                    Properties.Settings.Default.XTenantId,
-                    Properties.Settings.Default.XTraceId,
-                    Properties.Settings.Default.XUserId,
-                    Properties.Settings.Default.XUserName
-                );
-                // 获取 HttpClient 实例
-                var httpClient = HttpRetryHelper.GetClient();
-
-                // 检查本地的合法性以及服务器上的合法性
-                foreach (var file in pendingFiles)
-                {
-                    // 检查文件是否存在
-                    if (!File.Exists(Path.Combine(watchPath, file)))
-                    {
-                        log.Warn($"文件 {file} 不存在，跳过上传");
-                        continue;
-                    }
-
-                    try
-                    {
-                        // 获取文件名并拆分,文件名中包含型号和规格
-                        string[]? fileNameParts = Path.GetFileNameWithoutExtension(file)?.Split();
-
-                        #region 获取新型号
-                        // 为防止使用协同中不存在的旧型号,首先尝试获取对应的新型号
-                        log.Info($"尝试获取对应的新型号...");
-                        log.Info($"访问地址: {queryURL}?mbomCode={fileNameParts?[0]}");
-                        var partsAttrValueQueryData = await HttpRetryHelper.RetryHttpRequestAsync<PartsAttrValuePostResponseModel>(
-                            async () => await httpClient.PostAsync(
-                                $"{queryURL}?mbomCode={fileNameParts?[0]}",
-                                new StringContent(string.Empty)
-                            ),
-                            requestInfo: $"获取新型号信息 - mbomCode: {fileNameParts?[0]}"
-                        );
-                        newPartsCode = partsAttrValueQueryData?.data?.First()?.partsCode ?? fileNameParts?[0];
-                        #endregion
-
-                        #region 查询已有列表
-                        // 用get去查型号规格对应的ID
-                        log.Info($"查询型号规格对应的ID...");
-                        log.Info($"访问地址: {writeURL}?partsCode={newPartsCode}&specification={fileNameParts?[1]}");
-                        // 如果没有新型号,则使用原来的型号
-                        var queryData = await HttpRetryHelper.RetryHttpRequestAsync<MouldSizesCutterResponseModel>(
-                            async () => await httpClient.GetAsync(
-                                $"{writeURL}?partsCode={newPartsCode}&specification={fileNameParts?[1]}"
-                            ),
-                            requestInfo: $"查询型号规格 - partsCode: {newPartsCode}, specification: {fileNameParts?[1]}"
-                        );
-
-                        if (queryData?.code != "00")
-                        {
-                            log.Warn($"查询型号规格失败: {queryData?.error} {queryData?.message}");
-                            continue;
-                        }
-
-                        // 如果已有的型号规格中已经有了该编号文件,那就不上传了
-                        if (
-                            // count 为0可无视直接上传,只有拿到返回内容时需要判断
-                            queryData?.data?.Count != 0 &&
-                            // 只有规格的情况:一定相等,要用 fileNameParts?.Length != 2 来避免误判
-                            fileNameParts?.Length != 2 &&
-                            // 有编号的情况:最后一个part肯定是编号,有相同的编号就不上传了
-                            (queryData?.data?.Select(d => d?.fileName?.Split().Last()).Contains(fileNameParts?.Last()) ?? true))
-                        {
-                            log.Info($"文件 {file} 已经存在于型号规格中，跳过上传");
-                            continue;
-                        }
-                        #endregion
-
-                        #region  获取刀模编号
-                        // 获取刀模编号
-                        log.Info($"获取刀模编号...");
-                        log.Info($"访问地址: {listURL}?current=1&partsCode={newPartsCode}&size=15");
-                        var listData = await HttpRetryHelper.RetryHttpRequestAsync<MouldSizesListResponseModel>(
-                            async () => await httpClient.GetAsync(
-                                $"{listURL}?current=1&partsCode={newPartsCode}&size=15"
-                            ),
-                            requestInfo: $"获取刀模编号 - partsCode: {newPartsCode}"
-                        );
-
-                        if (listData?.code != "00")
-                        {
-                            log.Warn($"获取刀模编号失败: {listData?.errors} {listData?.message}");
-                            continue;
-                        }
-                        #endregion
-
-                        // 如果是新的编号记下来准备上传
-                        // file 中是原本的文件名, queryData 中是新型号的文件名
-                        responseInfos?.Add((file, queryData, listData, null, null));
-                    }
-                    catch (Exception ex)
-                    {
-                        log.Error(ex);
-                        continue;
-                    }
-                }
-
-                // 对合法文件进行上传
-                foreach (var file in responseInfos?.Select(responses => responses?.Item1).ToList() ?? [])
-                {
-                    try
-                    {
-                        // 读取文件内容
-                        log.Info($"读取文件内容...");
-                        if (file == null) continue;
-                        var fileContent = new ByteArrayContent(File.ReadAllBytes(Path.Combine(watchPath, file)));
-                        log.Info($"读取文件内容完成，文件大小: {fileContent.Headers.ContentLength} 字节");
-
-                        // 设置请求头
-                        fileContent.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("application/octet-stream");
-                        var form = new MultipartFormDataContent();
-
-                        // 文件名和文件内容分开,如果是旧型号在上传的时候替换成第一个接口查出来的新型号
-                        // 更正,前面有限制,这里不判断也没事,直接用newPartsCode就行
-                        if (responseInfos?.First(response => response?.Item1 == file)?.Item2?.code != "00")
-                        {
-                            // 如果没有查到数据并且可以上传,则直接使用原文件名
-                            form.Add(fileContent, "files", Path.GetFileName(file));
-                        }
-                        // 00 表示成功
-                        else
-                        {
-                            // 如果查到了数据,直接使用新型号的文件名
-                            form.Add(
-                                fileContent,
-                                "files",
-                                Path.GetFileName(file).Replace(
-                                    Path.GetFileName(file).Split().First(),
-                                    newPartsCode
-                                )
-                            );
-                        }
-
-                        // 调用上传接口                                    
-
-                        // 获取响应体内容
-                        try
-                        {
-                            var uploadResponse = await HttpRetryHelper.RetryHttpRequestAsync<FileStorageUploadParamResponseModel>(
-                                async () => await httpClient.PostAsync(targetURL, form),
-                                requestInfo: $"上传文件 - {Path.GetFileName(file)}"
-                            );
-
-                            if (uploadResponse?.code == "00")
-                            {
-                                // 响应结果存下来
-#pragma warning disable CS8602 // 解引用可能出现空引用。
-                                responseInfos[
-                                    responseInfos.IndexOf(
-                                        responseInfos.First(response => response?.Item1 == file)
-                                    )
-                                ] = (file, responseInfos.Last()?.Item2, responseInfos.Last()?.Item3, uploadResponse, null);
-#pragma warning restore CS8602 // 解引用可能出现空引用。
-                            }
-                            else
-                            {
-                                // 如果上传失败,则从responseInfos中移除该文件
-                                responseInfos?.Remove(responseInfos.First(response => response?.Item1 == file));
-                            }
-                        }
-                        catch (AggregateException)
-                        {
-                            // 如果上传失败,则从responseInfos中移除该文件
-                            responseInfos?.Remove(responseInfos.First(response => response?.Item1 == file));
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        labelUploadHintPrint("上传异常");
-                        log.Error("上传异常", ex);
-                    }
-                }
-
-                // 对上传成功的文件进行写入操作
-                // 上传失败的会被移除,写入时能看到的都是上传成功的
+            // 在文件夹中读取全部上传文件
+            if (Directory.Exists(UploadTrackerPaths.UploadFolder))
+            {
                 try
                 {
-                    // 留下来的都是上传成功的文件
-                    if (responseInfos?.Count == 0)
+                    // 每个文件
+                    foreach (var file in Directory.EnumerateFiles(UploadTrackerPaths.UploadFolder))
                     {
-                        log.Info($"没有上传成功的文件!跳过写入!");
-                        //MessageBox.Show("没有上传成功的文件，跳过写入\n请检查日志报错...");
-                        labelUploadHintPrint("没有上传成功的文件，跳过写入\n请检查日志报错...");
-                        return;
+                        var fileName = Path.GetFileName(file);
+                        // 如果是这个月的
+                        // UploadRecords_202506.json
+                        if (!fileName.Equals($"UploadRecords_{DateTime.Now.ToString("yyyyMM")}.json")) continue;
+
+                        var uploadedJson = File.ReadAllText(file);
+                        var tmpfile = JsonSerializer.Deserialize<List<UploadJsonModel>>(uploadedJson);
+                        // 只要不是空
+                        if (tmpfile == null || tmpfile.Count == 0) continue;
+                        // 塞到上传文件列表中
+                        tmpfile.ForEach(fileName => uploadedFiles.Add(fileName));
                     }
 
-                    #region 检查记录文件可用
-                    // 更新 uploaded.json 文件
-                    // 将 responseInfos 中的文件名添加到 uploaded.json 中
-                    var uploadedFiles = new List<UploadJsonModel>();
-
-                    if (!Directory.Exists(UploadTrackerPaths.UploadFolder))
-                    {
-                        Directory.CreateDirectory(UploadTrackerPaths.UploadFolder);
-                        log.Info($"创建上传记录文件夹: {UploadTrackerPaths.UploadFolder}");
-                    }
-
-                    var pendingState = JsonSerializer.Deserialize<UploadState>(File.ReadAllText(UploadTrackerPaths.PendingPath));
-
-                    // 新要求,需要将上传记录按照月份保存
-                    // 按照当前上传的月份去选文件
-                    var monthlyRecord = Path.Combine(UploadTrackerPaths.UploadFolder, $"UploadRecords_{DateTime.Now.ToString("yyyyMM")}.json");
-                    if (!File.Exists(monthlyRecord))
-                    {
-                        // 如果不存在就创建一个新的
-                        File.WriteAllText(monthlyRecord, "[]");
-                        log.Info($"创建新的上传记录文件: {monthlyRecord}");
-                    }
-                    try
-                    {
-                        // 读出这个月的上传记录
-                        var uploadedJson = File.ReadAllText(monthlyRecord);
-                        // 反序列化为 List<UploadJsonModel>
-                        uploadedFiles = JsonSerializer.Deserialize<List<UploadJsonModel>>(uploadedJson);
-                    }
-                    catch
-                    {
-                        log.Warn("uploaded.json 读取失败，已重置为空");
-                    }
-                    #endregion
-
-                    #region 写入并记录
-                    // 调用写入接口                
-
-                    // 所有文件分开写入,避免一次性全部失败
-                    foreach (var responseInfo in responseInfos ?? [])
-                    {
-                        // 构造写入接口需要的数据
-                        var jsonContent = JsonSerializer.Serialize(new MouldSizesCutterRequestModel()
-                        {
-                            containerNum = responseInfo?.Item2?.data?.FirstOrDefault()?.containerNum ?? 0,
-                            cutterBlankSpec = (responseInfo?.Item2?.data?.FirstOrDefault()?.cutterBlankSpec ?? 0).ToString(),
-                            cutterType = responseInfo?.Item2?.data?.FirstOrDefault()?.cutterType ?? 0,
-                            fileId = long.Parse(responseInfo?.Item4?.data?.FirstOrDefault()?.fileId ?? "0"),
-                            // 取数据时候尽可能用靠后的接口的响应,免得中间有修改忘记处理
-                            fileName = responseInfo?.Item4?.data?.FirstOrDefault()?.fileName ?? string.Empty,
-                            fileUrl = responseInfo?.Item4?.data?.FirstOrDefault()?.fileUrl ?? string.Empty,
-                            mouldSizeCutterId = long.Parse(responseInfo?.Item2?.data?.FirstOrDefault()?.mouldSizeCutterId ?? ""),
-                            // 刀模编号从刀模编号列表查询接口中获取
-                            mouldSizeId = long.Parse(responseInfo?.Item3?.data?.records?.First(record => record?.specification?.Split('.')?[0] == responseInfo?.Item1?.Split()?[1])?.mouldSizeId ?? "0"),
-                            seq = responseInfo?.Item2?.data?.FirstOrDefault()?.seq ?? 0
-                        }, new JsonSerializerOptions { WriteIndented = true });
-                        log.Info($"{jsonContent}");
-
-                        // 开始写入
-                        HttpContent httpContent = new StringContent(jsonContent);
-                        httpContent.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("application/json");
-                        try
-                        {
-                            var writeResponse = await HttpRetryHelper.RetryHttpRequestAsync<MouldSizesCutterPostResponseModel>(
-                                async () => await httpClient.PostAsync(writeURL, httpContent),
-                                requestInfo: $"写入数据 - {responseInfo?.Item1}"
-                            );
-
-                            if (writeResponse?.code != "00")
-                            {
-                                labelUploadHintPrint($"写入数据失败");
-                                log.Warn($"写入数据失败: {writeResponse?.error}");
-                                // 失败后尝试下一条
-                                continue;
-                            }
-                        }
-                        catch (AggregateException)
-                        {
-                            // 失败后尝试下一条
-                            continue;
-                        }
-
-                        // 添加这次上传成功的记录,文件名为空的情况不可能出现
-                        uploadedFiles?.Add(new()
-                        {
-                            // 这里使用原名
-                            fileName = Path.GetFileName(responseInfo?.Item1) ?? "",
-                            uploadTime = responseInfo?.Item4?.timestamp ?? DateTime.Now.ToString()
-                        });
-
-                        // 删除 pending.json 中上传成功的文件                
-                        pendingState?.FilesToUpload.Remove(Path.GetFileName(responseInfo?.Item1) ?? string.Empty);
-                    }
-                    #endregion
-
-                    #region 更新列表框和文件
-                    // 在列表框中显示已上传文件列表
                     if (listBoxUploadComplete.InvokeRequired)
                     {
                         listBoxUploadComplete.Invoke(new Action(() => listBoxUploadComplete.Items.Clear()));
-                        uploadedFiles?.ForEach(
-                            file => listBoxUploadComplete.Invoke(
-                                new Action(() => listBoxUploadComplete.Items.Add(Path.GetFileName(file.fileName) ?? string.Empty))
+                        uploadedFiles
+                        ?.GroupBy(file => file.uploadTime)?.Last()?.ToList()
+                        ?.ForEach(
+                            file => listBoxPendingUpload.Invoke(
+                                new Action(() => listBoxPendingUpload.Items.Add(file.fileName))
                             )
                         );
                     }
                     else
                     {
                         listBoxUploadComplete.Items.Clear();
-                        uploadedFiles?.ForEach(
-                            file => listBoxUploadComplete.Items.Add(Path.GetFileName(file.fileName) ?? string.Empty)
-                        );
+                        uploadedFiles?.ToList()?.ForEach(file => listBoxUploadComplete.Items.Add(file.fileName));
                     }
-
-                    // 在列表框中删除已上传文件列表
-                    if (listBoxPendingUpload.InvokeRequired)
-                    {
-                        responseInfos?
-                            .Where(file => file?.Item1 != null).ToList()
-                            .ForEach(file => listBoxPendingUpload.Invoke(
-                                new Action(() => listBoxPendingUpload.Items.Remove(Path.GetFileName(file?.Item1) ?? ""))
-                            )
-                        );
-                    }
-                    else
-                    {
-                        responseInfos?
-                            .Where(file => file?.Item1 != null).ToList()
-                            .ForEach(file => listBoxPendingUpload.Items.Remove(Path.GetFileName(file?.Item1) ?? "")
-                        );
-                    }
-
-                    // 写回 pending.json
-                    File.WriteAllText(UploadTrackerPaths.PendingPath, JsonSerializer.Serialize(pendingState, new JsonSerializerOptions { WriteIndented = true }));
-                    // 写入已上传文件
-                    File.WriteAllText(monthlyRecord, JsonSerializer.Serialize(uploadedFiles, new JsonSerializerOptions { WriteIndented = true }));
-                    log.Info($"更新 uploaded.json 文件成功，已添加 {uploadedFiles?.Count} 个文件名");
-                    labelUploadHintPrint($"上传成功，已添加 {uploadedFiles?.Count} 个文件,{listBoxPendingUpload.Items.Count}个上传失败");
-                    #endregion
                 }
-                catch (Exception ex)
+                catch
                 {
-                    log.Error("处理上传结果时发生错误", ex);
-                    //MessageBox.Show("处理上传结果时发生错误：" + ex.Message);
-                    labelUploadHintPrint("处理上传结果时发生错误");
+                    log.Warn("uploaded.json 读取失败，已重置为空");
+                    LabelUploadHintPrint("uploaded.json 读取失败，已重置为空");
+                }
+            }
+            #endregion
+        }
+        catch (Exception ex)
+        {
+            log.Error($"初始化主窗体失败: {ex.Message}");
+        }
+        log.Info($"初始化主窗体完成!");
+        return true;
+    }
+
+    /// <summary>
+    /// 初始化文件监视器，监控指定路径的文件变化事件。
+    /// </summary>
+    /// <param name="path">需要监视的目录</param>
+    private void InitWatcher(string path)
+    {
+        // 清除之前的监视器
+        watcher?.Dispose();
+
+        // 创建新的监视器实例
+        watcher = new DelayFileSystemWatcherHelper(path, "*.*", 800);
+
+        watcher.DelayChanged += (changedFile) =>
+        {
+            // 这里是延时合并后的回调
+            this.Invoke(new Action(() => UpdateFileRecord(changedFile ?? "")));
+        };
+        watcher.Start();
+    }
+    #endregion
+
+    #region 控件事件
+    /// <summary>
+    /// 设置按钮点击事件处理，切换到设置页面。
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    private void btnSetting_Click(object sender, EventArgs e)
+    {
+        log.Info($"切换到设置页面");
+        this.tabControl.SelectedTab = this.tabPageSetting;
+    }
+
+    /// <summary>
+    /// 点击浏览按钮选择一个目录进行监控。
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    private void btnBrowsePath_Click(object sender, EventArgs e)
+    {
+        log.Info($"浏览按钮被点击，选择目录...");
+        labelPathHint.Text.Remove(0, labelPathHint.Text.Length); // 清空提示文本
+
+        using var folderBrowserDialog = new FolderBrowserDialog();
+        if (folderBrowserDialog.ShowDialog() == DialogResult.OK)
+        {
+            txtPath.Text = folderBrowserDialog.SelectedPath;
+            // 保存路径到设置中
+            Properties.Settings.Default.LastPath = folderBrowserDialog.SelectedPath;
+            Properties.Settings.Default.Save();
+            log.Info($"选择路径: {folderBrowserDialog.SelectedPath}");
+            labelPathHint.Text = $"当前监控目录: {folderBrowserDialog.SelectedPath}";
+            InitWatcher(folderBrowserDialog.SelectedPath);
+        }
+    }
+
+    /// <summary>
+    /// 日志按钮点击事件处理，切换到日志页面。
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    private void btnLog_Click(object sender, EventArgs e)
+    {
+        log.Info($"切换到日志页面");
+        this.tabControl.SelectedTab = this.tabPageLog;
+        // 打开指定目录
+        if (Directory.Exists(UploadTrackerPaths.LogFolder))
+        {
+            System.Diagnostics.Process.Start("explorer.exe", UploadTrackerPaths.LogFolder);
+            log.Info($"打开日志目录: {UploadTrackerPaths.LogFolder}");
+        }
+        else
+        {
+            //MessageBox.Show($"日志目录不存在: {UploadTrackerPaths.LogFolder}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            log.Error($"日志目录不存在: {UploadTrackerPaths.LogFolder}");
+        }
+    }
+
+    /// <summary>
+    /// 上传按钮点击事件处理。
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    private async void btnUpload_Click(object sender, EventArgs e)
+    {
+        string watchPath = txtPath.Text;
+
+        // 检查路径是否存在
+        log.Info($"上传事件开始");
+        log.Info($"检查路径是否存在: {watchPath}");
+        if (File.Exists(UploadTrackerPaths.PendingPath))
+        {
+            try
+            {
+                var pendingJson = await File.ReadAllTextAsync(UploadTrackerPaths.PendingPath);
+                var state = JsonSerializer.Deserialize<UploadState>(pendingJson);
+                if (state == null || state.FilesToUpload.Count == 0)
+                {
+                    log.Warn("没有待上传的文件，跳过上传");
+                    //MessageBox.Show("没有待上传的文件");
+                    LabelUploadHintPrint("没有待上传的文件");
                     return;
                 }
+
+                // 恢复成绝对路径
+                lock (_lockObj)
+                {
+                    // 清空当前集合
+                    pendingFiles?.Clear();
+                    state.FilesToUpload.ForEach(file => pendingFiles?.Add(Path.Combine(watchPath, file)));
+                }
+
+                // 换页
+                this.tabControl.SelectedTab = this.tabPageUpload;
             }
             catch (Exception ex)
             {
-                log.Error("上传过程发生错误", ex);
-                labelUploadHintPrint("上传失败，请查看日志");
+#if DEBUG
+                MessageBox.Show("读取待上传文件列表失败：" + ex.Message);
+#elif RELEASE
+                labelUploadHintPrint("读取待上传文件列表失败");
+#endif
+                log.Error("读取待上传文件列表失败", ex);
+                // 换页
+                this.tabControl.SelectedTab = this.tabPageUpload;
+                return;
             }
         }
+#if DEBUG
+        //return;
+#endif
+        await UploadPre();
+    }
 
-        /// <summary>
-        /// 在上传界面的提示标签中显示输入的内容
-        /// </summary>
-        /// <param name="hint"></param>
-        private void labelUploadHintPrint(string hint)
+    /// <summary>
+    /// 上传前的预处理方法，调用 Upload 方法进行文件上传操作。
+    /// </summary>
+    /// <returns></returns>
+    private async Task UploadPre() => await Upload();
+
+    /// <summary>
+    /// 退出按钮点击事件处理，关闭应用程序。
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    private void btnExit_Click(object sender, EventArgs e)
+    {
+        try
         {
-            if (labelUploadHint.InvokeRequired) labelUploadHint.Invoke(new Action(() => labelUploadHint.Text = hint));
-            else labelUploadHint.Text = hint;
+            Dispose();
+            Application.Exit();
+        }
+        catch (Exception ex)
+        {
+            log.Error($"退出程序时发生错误!", ex);
+        }
+    }
+    #endregion
+
+    #region 窗体事件
+    /// <summary>
+    /// 关闭时最小化
+    /// </summary>
+    /// <param name="e"></param>
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        // 如果是用户关闭窗口，则最小化到托盘
+        if (e.CloseReason == CloseReason.UserClosing)
+        {
+            e.Cancel = true;
+            this.Hide();
+            notifyIcon.ShowBalloonTip(1000, "后台运行中", "程序已最小化至托盘", ToolTipIcon.Info);
+        }
+        base.OnFormClosing(e);
+    }
+
+    /// <summary>
+    /// 点击托盘图标时显示主窗口。
+    /// </summary>
+    private void ShowMainWindow()
+    {
+        this.Show();
+        this.WindowState = FormWindowState.Normal;
+        this.BringToFront();
+    }
+    #endregion
+
+    #region 监控事件
+    /// <summary>
+    /// 更新文件记录方法，处理文件变化事件并更新待上传文件列表。
+    /// </summary>
+    /// <param name="changedFilePath"></param>
+    private async void UpdateFileRecord(string changedFilePath = "")
+    {
+        log.Info($"UpdateFileRecord: {changedFilePath}");
+        // 检查路径是否存在
+        string watchPath = txtPath.Text;
+        var currentFiles = Directory.EnumerateFiles(watchPath)
+            .Select(file => Path.GetFileName(file))
+            .Where(file => allowedExtensions?
+                .Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase) ?? false &&
+                Regex.Match(Path.GetFileName(file), @allowedFileNameRules).Success)
+            .ToList();
+        log.Info($"已加载 {watchPath} 下所有文件,共 {currentFiles.Count} 个符合规则的文件");
+
+        // 先放入已有待上传
+        log.Info($"读取待上传文件列表: {UploadTrackerPaths.PendingPath}");
+        // 不存在时创建一个新的
+        if (!File.Exists(UploadTrackerPaths.PendingPath))
+        {
+            log.Warn($"没有找到待上传文件列表: {UploadTrackerPaths.PendingPath}");
+            // 如果不存在就创建一个新的
+            File.WriteAllText(
+                UploadTrackerPaths.PendingPath,
+                JsonSerializer.Serialize(new UploadState
+                {
+                    AllFilesInFolder = currentFiles,
+                    FilesToUpload = new List<string>()
+                }, new JsonSerializerOptions { WriteIndented = true }
+            ));
+            log.Info($"创建新的待上传文件列表: {UploadTrackerPaths.PendingPath}");
+        }
+        log.Info($"去掉当前目录下已不存在的文件");
+
+        // 存在待上传并且在当前目录下能找到这些
+        lock (_lockObj)
+        {
+            pendingFiles?.Clear();
+            (JsonSerializer.Deserialize<UploadState>(File.ReadAllText(UploadTrackerPaths.PendingPath))?.FilesToUpload
+            .Where(file => currentFiles.Contains(file))
+            .ToHashSet()
+            .ToList() ?? new())
+                .ForEach(file => pendingFiles?.Add(file));
         }
 
-        /// <summary>
-        /// 验证设置是否有效，确保所有必要的URL都已配置。
-        /// </summary>
-        /// <returns></returns>
-        private bool ValidateSettings() => !string.IsNullOrEmpty(targetURL) && !string.IsNullOrEmpty(writeURL) && !string.IsNullOrEmpty(queryURL) && !string.IsNullOrEmpty(listURL);
-        #endregion
+        var changedFilePathSplits = changedFilePath.Split("|");
+        foreach (var filePath in changedFilePathSplits)
+        {
+            log.Info($"处理文件变化: {filePath}");
+            // 排除掉被触发时为删除文件的情况
+            if (!File.Exists(filePath))
+            {
+                // 从待上传列表中移除
+                lock (_lockObj)
+                {
+                    var fileName = Path.GetFileName(filePath);
+                    var tempList = pendingFiles?.ToList();
+                    pendingFiles?.Clear();
+                    tempList?.Where(file => file != fileName).ToList()
+                        .ForEach(file => pendingFiles?.Add(file));
+                }
+                return;
+            }
+
+            // 添加文件之前判断是否符合后缀规则和命名规则
+            if (allowedExtensions?
+                .Contains(Path.GetExtension(filePath), StringComparer.OrdinalIgnoreCase) ?? false &&
+                // 符合名称规则
+                Regex.Match(Path.GetFileName(filePath), @allowedFileNameRules).Success)
+            {
+                lock (_lockObj)
+                {
+                    // 添加文件之前先去重
+                    if (!pendingFiles?.Contains(Path.GetFileName(filePath)) ?? true)
+                    {
+                        pendingFiles?.Add(Path.GetFileName(filePath));
+                    }
+                }
+            }
+
+            log.Info($"添加已修改文件: {Path.GetFileName(filePath)}");
+        }
+
+        log.Info("在列表框中显示待上传文件列表");
+        // 在列表框中显示待上传文件列表
+        if (listBoxPendingUpload.InvokeRequired)
+        {
+            listBoxPendingUpload.Invoke(new Action(() => listBoxPendingUpload.Items.Clear()));
+            // 使用临时列表避免长时间占用锁
+            List<string> filesToProcess;
+            lock (_lockObj)
+            {
+                filesToProcess = pendingFiles?.ToList() ?? [];
+            }
+            filesToProcess.ForEach(
+                file => listBoxPendingUpload.Invoke(
+                    new Action(() => listBoxPendingUpload.Items.Add(file))
+                )
+            );
+        }
+        else
+        {
+            listBoxPendingUpload.Items.Clear();
+            List<string> filesToProcess;
+            lock (_lockObj)
+            {
+                filesToProcess = pendingFiles?.ToList() ?? [];
+            }
+            filesToProcess.ForEach(
+                file => listBoxPendingUpload.Items.Add(file)
+            );
+        }
+
+        log.Info($"更新 {UploadTrackerPaths.PendingPath} 文件");
+        // 写入 pending.json 文件,已失效的不会被写入
+        lock (_lockObj)
+        {
+            var state = new UploadState
+            {
+                AllFilesInFolder = currentFiles,
+                FilesToUpload = pendingFiles?.ToList() ?? []
+            };
+
+            var pendingJson = JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(UploadTrackerPaths.PendingPath, pendingJson);
+
+        }
+
+        log.Info($"监控更新：总文件 {currentFiles.Count} 个，待上传 {pendingFiles?.Count} 个");
+        await UploadPre();
     }
+    #endregion
+
+    #region 上传逻辑
+    /// <summary>
+    /// 上传方法，处理文件上传逻辑。
+    /// </summary>
+    /// <returns></returns>
+    private async Task Upload()
+    {
+        if (pendingFiles == null || pendingFiles.Count == 0) return;
+
+        #region 变量
+        // 构造待上传文件列表
+        string watchPath = txtPath.Text;
+        List<(string?, MouldSizesCutterResponseModel?, MouldSizesListResponseModel?, FileStorageUploadParamResponseModel?, MouldSizesCutterRequestModel?)?>? responseInfos = new();
+        var newPartsCode = "";
+        #endregion
+
+        try
+        {
+            // 配置项检查
+            if (!ValidateSettings())
+            {
+                log.Error("URL配置无效");
+                LabelUploadHintPrint("配置错误，请检查设置");
+                return;
+            }
+
+            // 设定 HttpClient 的请求头
+            HttpRetryHelper.ConfigureHttpClient(
+                Properties.Settings.Default.XTenantId,
+                Properties.Settings.Default.XTraceId,
+                Properties.Settings.Default.XUserId,
+                Properties.Settings.Default.XUserName
+            );
+            // 获取 HttpClient 实例
+            var httpClient = HttpRetryHelper.GetClient();
+
+            // 检查本地的合法性以及服务器上的合法性
+            foreach (var file in pendingFiles)
+            {
+                // 检查文件是否存在
+                if (!File.Exists(Path.Combine(watchPath, file)))
+                {
+                    log.Warn($"文件 {file} 不存在，跳过上传");
+                    continue;
+                }
+
+                try
+                {
+                    // 获取文件名并拆分,文件名中包含型号和规格
+                    string[]? fileNameParts = Path.GetFileNameWithoutExtension(file)?.Split();
+
+                    #region 获取新型号
+                    // 为防止使用协同中不存在的旧型号,首先尝试获取对应的新型号
+                    log.Info($"尝试获取对应的新型号...");
+                    log.Info($"访问地址: {queryURL}?mbomCode={fileNameParts?[0]}");
+                    var partsAttrValueQueryData = await HttpRetryHelper.RetryHttpRequestAsync<PartsAttrValuePostResponseModel>(
+                        async () => await httpClient.PostAsync(
+                            $"{queryURL}?mbomCode={fileNameParts?[0]}",
+                            new StringContent(string.Empty)
+                        ),
+                        requestInfo: $"获取新型号信息 - mbomCode: {fileNameParts?[0]}"
+                    );
+                    newPartsCode = partsAttrValueQueryData?.data?.First()?.partsCode ?? fileNameParts?[0];
+                    #endregion
+
+                    #region 查询已有列表
+                    // 用get去查型号规格对应的ID
+                    log.Info($"查询型号规格对应的ID...");
+                    log.Info($"访问地址: {writeURL}?partsCode={newPartsCode}&specification={fileNameParts?[1]}");
+                    // 如果没有新型号,则使用原来的型号
+                    var queryData = await HttpRetryHelper.RetryHttpRequestAsync<MouldSizesCutterResponseModel>(
+                        async () => await httpClient.GetAsync(
+                            $"{writeURL}?partsCode={newPartsCode}&specification={fileNameParts?[1]}"
+                        ),
+                        requestInfo: $"查询型号规格 - partsCode: {newPartsCode}, specification: {fileNameParts?[1]}"
+                    );
+
+                    if (queryData?.code != "00")
+                    {
+                        log.Warn($"查询型号规格失败: {queryData?.error} {queryData?.message}");
+                        continue;
+                    }
+
+                    // 如果已有的型号规格中已经有了该编号文件,那就不上传了
+                    if (
+                        // count 为0可无视直接上传,只有拿到返回内容时需要判断
+                        queryData?.data?.Count != 0 &&
+                        // 只有规格的情况:一定相等,要用 fileNameParts?.Length != 2 来避免误判
+                        fileNameParts?.Length != 2 &&
+                        // 有编号的情况:最后一个part肯定是编号,有相同的编号就不上传了
+                        (queryData?.data?.Select(d => d?.fileName?.Split().Last()).Contains(fileNameParts?.Last()) ?? true))
+                    {
+                        log.Info($"文件 {file} 已经存在于型号规格中，跳过上传");
+                        continue;
+                    }
+                    #endregion
+
+                    #region  获取刀模编号
+                    // 获取刀模编号
+                    log.Info($"获取刀模编号...");
+                    log.Info($"访问地址: {listURL}?current=1&partsCode={newPartsCode}&size=15");
+                    var listData = await HttpRetryHelper.RetryHttpRequestAsync<MouldSizesListResponseModel>(
+                        async () => await httpClient.GetAsync(
+                            $"{listURL}?current=1&partsCode={newPartsCode}&size=15"
+                        ),
+                        requestInfo: $"获取刀模编号 - partsCode: {newPartsCode}"
+                    );
+
+                    if (listData?.code != "00")
+                    {
+                        log.Warn($"获取刀模编号失败: {listData?.errors} {listData?.message}");
+                        continue;
+                    }
+
+                    if (listData?.data?.records?.All(record => record?.specification != fileNameParts?[1]) ?? true)
+                    {
+                        log.Warn($"没有找到对应的刀模编号,请检查型号和规格是否正确: {newPartsCode} {fileNameParts?[1]}");
+                        continue;
+                    }
+                    #endregion
+
+                    // 如果是新的编号记下来准备上传
+                    // file 中是原本的文件名, queryData 中是新型号的文件名
+                    responseInfos?.Add((file, queryData, listData, null, null));
+                }
+                catch (Exception ex)
+                {
+                    log.Error(ex);
+                    continue;
+                }
+            }
+
+            // 对合法文件进行上传
+            foreach (var file in responseInfos?.Select(responses => responses?.Item1).ToList() ?? [])
+            {
+                try
+                {
+                    // 读取文件内容
+                    log.Info($"读取文件内容...");
+                    if (file == null) continue;
+                    var fileContent = new ByteArrayContent(File.ReadAllBytes(Path.Combine(watchPath, file)));
+                    log.Info($"读取文件内容完成，文件大小: {fileContent.Headers.ContentLength} 字节");
+
+                    // 设置请求头
+                    fileContent.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("application/octet-stream");
+                    var form = new MultipartFormDataContent();
+
+                    // 文件名和文件内容分开,如果是旧型号在上传的时候替换成第一个接口查出来的新型号
+                    // 更正,前面有限制,这里不判断也没事,直接用newPartsCode就行
+                    if (responseInfos?.First(response => response?.Item1 == file)?.Item2?.code != "00")
+                    {
+                        // 如果没有查到数据并且可以上传,则直接使用原文件名
+                        form.Add(fileContent, "files", Path.GetFileName(file));
+                    }
+                    // 00 表示成功
+                    else
+                    {
+                        // 如果查到了数据,直接使用新型号的文件名
+                        form.Add(
+                            fileContent,
+                            "files",
+                            Path.GetFileName(file).Replace(
+                                Path.GetFileName(file).Split().First(),
+                                newPartsCode
+                            )
+                        );
+                    }
+
+                    // 调用上传接口                                    
+
+                    // 获取响应体内容
+                    try
+                    {
+                        var uploadResponse = await HttpRetryHelper.RetryHttpRequestAsync<FileStorageUploadParamResponseModel>(
+                            async () => await httpClient.PostAsync(targetURL, form),
+                            requestInfo: $"上传文件 - {Path.GetFileName(file)}"
+                        );
+
+                        if (uploadResponse?.code == "00")
+                        {
+                            // 响应结果存下来
+#pragma warning disable CS8602 // 解引用可能出现空引用。
+                            responseInfos[
+                                responseInfos.IndexOf(
+                                    responseInfos.First(response => response?.Item1 == file)
+                                )
+                            ] = (file, responseInfos.Last()?.Item2, responseInfos.Last()?.Item3, uploadResponse, null);
+#pragma warning restore CS8602 // 解引用可能出现空引用。
+                        }
+                        else
+                        {
+                            // 如果上传失败,则从responseInfos中移除该文件
+                            responseInfos?.Remove(responseInfos.First(response => response?.Item1 == file));
+                        }
+                    }
+                    catch (AggregateException)
+                    {
+                        // 如果上传失败,则从responseInfos中移除该文件
+                        responseInfos?.Remove(responseInfos.First(response => response?.Item1 == file));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LabelUploadHintPrint("上传异常");
+                    log.Error("上传异常", ex);
+                }
+            }
+
+            // 对上传成功的文件进行写入操作
+            // 上传失败的会被移除,写入时能看到的都是上传成功的
+            try
+            {
+                // 留下来的都是上传成功的文件
+                if (responseInfos?.Count == 0)
+                {
+                    log.Info($"没有上传成功的文件!跳过写入!");
+                    //MessageBox.Show("没有上传成功的文件，跳过写入\n请检查日志报错...");
+                    LabelUploadHintPrint("没有上传成功的文件，跳过写入\n请检查日志报错...");
+                    return;
+                }
+
+                #region 检查记录文件可用
+                // 更新 uploaded.json 文件
+                // 将 responseInfos 中的文件名添加到 uploaded.json 中
+                var uploadedFiles = new List<UploadJsonModel>();
+
+                if (!Directory.Exists(UploadTrackerPaths.UploadFolder))
+                {
+                    Directory.CreateDirectory(UploadTrackerPaths.UploadFolder);
+                    log.Info($"创建上传记录文件夹: {UploadTrackerPaths.UploadFolder}");
+                }
+
+                var pendingState = JsonSerializer.Deserialize<UploadState>(File.ReadAllText(UploadTrackerPaths.PendingPath));
+
+                // 新要求,需要将上传记录按照月份保存
+                // 按照当前上传的月份去选文件
+                var monthlyRecord = Path.Combine(UploadTrackerPaths.UploadFolder, $"UploadRecords_{DateTime.Now.ToString("yyyyMM")}.json");
+                if (!File.Exists(monthlyRecord))
+                {
+                    // 如果不存在就创建一个新的
+                    File.WriteAllText(monthlyRecord, "[]");
+                    log.Info($"创建新的上传记录文件: {monthlyRecord}");
+                }
+                try
+                {
+                    // 读出这个月的上传记录
+                    var uploadedJson = File.ReadAllText(monthlyRecord);
+                    // 反序列化为 List<UploadJsonModel>
+                    uploadedFiles = JsonSerializer.Deserialize<List<UploadJsonModel>>(uploadedJson);
+                }
+                catch
+                {
+                    log.Warn("uploaded.json 读取失败，已重置为空");
+                }
+                #endregion
+
+                #region 写入并记录
+                // 调用写入接口                
+
+                // 所有文件分开写入,避免一次性全部失败
+                foreach (var responseInfo in responseInfos ?? [])
+                {
+                    // 构造写入接口需要的数据
+                    var jsonContent = JsonSerializer.Serialize(new MouldSizesCutterRequestModel()
+                    {
+                        containerNum = responseInfo?.Item2?.data?.FirstOrDefault()?.containerNum ?? 0,
+                        cutterBlankSpec = (responseInfo?.Item2?.data?.FirstOrDefault()?.cutterBlankSpec ?? 0).ToString(),
+                        cutterType = responseInfo?.Item2?.data?.FirstOrDefault()?.cutterType ?? 0,
+                        fileId = long.Parse(responseInfo?.Item4?.data?.FirstOrDefault()?.fileId ?? "0"),
+                        // 取数据时候尽可能用靠后的接口的响应,免得中间有修改忘记处理
+                        fileName = responseInfo?.Item4?.data?.FirstOrDefault()?.fileName ?? string.Empty,
+                        fileUrl = responseInfo?.Item4?.data?.FirstOrDefault()?.fileUrl ?? string.Empty,
+                        mouldSizeCutterId = long.Parse(responseInfo?.Item2?.data?.FirstOrDefault()?.mouldSizeCutterId ?? "0"),
+                        // 刀模编号从刀模编号列表查询接口中获取
+                        mouldSizeId = long.Parse(responseInfo?.Item3?.data?.records?.First(record => record?.specification?.Split('.')?[0] == responseInfo?.Item1?.Split()?[1])?.mouldSizeId ?? "0"),
+                        seq = responseInfo?.Item2?.data?.FirstOrDefault()?.seq ?? 0
+                    }, new JsonSerializerOptions { WriteIndented = true });
+                    log.Info($"{jsonContent}");
+
+                    // 开始写入
+                    HttpContent httpContent = new StringContent(jsonContent);
+                    httpContent.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("application/json");
+                    try
+                    {
+                        var writeResponse = await HttpRetryHelper.RetryHttpRequestAsync<MouldSizesCutterPostResponseModel>(
+                            async () => await httpClient.PostAsync(writeURL, httpContent),
+                            requestInfo: $"写入数据 - {responseInfo?.Item1}"
+                        );
+
+                        if (writeResponse?.code != "00")
+                        {
+                            LabelUploadHintPrint($"写入数据失败");
+                            log.Warn($"写入数据失败: {writeResponse?.error}");
+                            // 失败后尝试下一条
+                            continue;
+                        }
+                    }
+                    catch (AggregateException)
+                    {
+                        // 失败后尝试下一条
+                        continue;
+                    }
+
+                    // 添加这次上传成功的记录,文件名为空的情况不可能出现
+                    uploadedFiles?.Add(new()
+                    {
+                        // 这里使用原名
+                        fileName = Path.GetFileName(responseInfo?.Item1) ?? "",
+                        uploadTime = responseInfo?.Item4?.timestamp ?? DateTime.Now.ToString()
+                    });
+
+                    // 删除 pending.json 中上传成功的文件                
+                    pendingState?.FilesToUpload.Remove(Path.GetFileName(responseInfo?.Item1) ?? string.Empty);
+                }
+                #endregion
+
+                #region 更新列表框和文件
+                // 在列表框中显示已上传文件列表
+                if (listBoxUploadComplete.InvokeRequired)
+                {
+                    listBoxUploadComplete.Invoke(new Action(() => listBoxUploadComplete.Items.Clear()));
+                    uploadedFiles?.ForEach(
+                        file => listBoxUploadComplete.Invoke(
+                            new Action(() => listBoxUploadComplete.Items.Add(Path.GetFileName(file.fileName) ?? string.Empty))
+                        )
+                    );
+                }
+                else
+                {
+                    listBoxUploadComplete.Items.Clear();
+                    uploadedFiles?.ForEach(
+                        file => listBoxUploadComplete.Items.Add(Path.GetFileName(file.fileName) ?? string.Empty)
+                    );
+                }
+
+                // 在列表框中删除已上传文件列表
+                if (listBoxPendingUpload.InvokeRequired)
+                {
+                    responseInfos?
+                        .Where(file => file?.Item1 != null).ToList()
+                        .ForEach(file => listBoxPendingUpload.Invoke(
+                            new Action(() => listBoxPendingUpload.Items.Remove(Path.GetFileName(file?.Item1) ?? ""))
+                        )
+                    );
+                }
+                else
+                {
+                    responseInfos?
+                        .Where(file => file?.Item1 != null).ToList()
+                        .ForEach(file => listBoxPendingUpload.Items.Remove(Path.GetFileName(file?.Item1) ?? "")
+                    );
+                }
+
+                // 写回 pending.json
+                File.WriteAllText(UploadTrackerPaths.PendingPath, JsonSerializer.Serialize(pendingState, new JsonSerializerOptions { WriteIndented = true }));
+                // 写入已上传文件
+                File.WriteAllText(monthlyRecord, JsonSerializer.Serialize(uploadedFiles, new JsonSerializerOptions { WriteIndented = true }));
+                log.Info($"更新 uploaded.json 文件成功，已添加 {uploadedFiles?.Count} 个文件名");
+                LabelUploadHintPrint($"上传成功，已添加 {uploadedFiles?.Count} 个文件,{listBoxPendingUpload.Items.Count}个上传失败");
+                #endregion
+            }
+            catch (Exception ex)
+            {
+                log.Error("处理上传结果时发生错误", ex);
+                //MessageBox.Show("处理上传结果时发生错误：" + ex.Message);
+                LabelUploadHintPrint("处理上传结果时发生错误");
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            log.Error("上传过程发生错误", ex);
+            LabelUploadHintPrint("上传失败，请查看日志");
+        }
+    }
+
+    /// <summary>
+    /// 在上传界面的提示标签中显示输入的内容
+    /// </summary>
+    /// <param name="hint"></param>
+    private void LabelUploadHintPrint(string hint)
+    {
+        if (labelUploadHint.InvokeRequired) labelUploadHint.Invoke(new Action(() => labelUploadHint.Text = hint));
+        else labelUploadHint.Text = hint;
+    }
+
+    /// <summary>
+    /// 验证设置是否有效，确保所有必要的URL都已配置。
+    /// </summary>
+    /// <returns></returns>
+    private bool ValidateSettings() => !string.IsNullOrEmpty(targetURL) && !string.IsNullOrEmpty(writeURL) && !string.IsNullOrEmpty(queryURL) && !string.IsNullOrEmpty(listURL);
+    #endregion
 }
