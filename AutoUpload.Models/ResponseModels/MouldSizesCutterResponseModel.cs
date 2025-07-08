@@ -16,6 +16,9 @@ public class MouldSizesCutterResponseModel
     public string? timestamp { get; set; } = string.Empty;
 }
 
+/// <summary>
+/// 模具尺寸刀具响应模型数据
+/// </summary>
 public class MouldSizesCutterResponseModelData
 {
     public int? containerNum { get; set; } = 0;

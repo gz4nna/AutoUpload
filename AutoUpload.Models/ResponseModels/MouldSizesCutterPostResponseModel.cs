@@ -1,5 +1,8 @@
 ﻿namespace AutoUpload.Models.ResponseModels;
 
+/// <summary>
+/// 写入模具尺寸刀具响应模型
+/// </summary>
 public class MouldSizesCutterPostResponseModel
 {
     public string? code { get; set; } = string.Empty;

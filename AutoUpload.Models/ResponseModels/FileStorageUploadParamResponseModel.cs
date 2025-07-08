@@ -3,6 +3,9 @@ using System.Text.Json.Serialization;
 
 namespace AutoUpload.Models.ResponseModels;
 
+/// <summary>
+/// 文件存储上传参数响应模型
+/// </summary>
 public class FileStorageUploadParamResponseModel
 {
     public string? code { get; set; } = string.Empty;
@@ -11,6 +14,10 @@ public class FileStorageUploadParamResponseModel
     public string? message { get; set; } = string.Empty;
     public string? timestamp { get; set; } = string.Empty;
 }
+
+/// <summary>
+/// 文件存储上传参数响应模型数据
+/// </summary>
 public class FileStorageUploadParamResponseModelData
 {
     public string? fileExtName { get; set; } = string.Empty;

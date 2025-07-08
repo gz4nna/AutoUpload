@@ -1,13 +1,11 @@
-using System.Collections.Concurrent;
-using System.Text.Json;
-using System.Text.RegularExpressions;
-
 using AutoUpload.Models;
 using AutoUpload.Models.Helpers;
 using AutoUpload.Models.JsonModels;
 using AutoUpload.Models.ResponseModels;
-
 using log4net;
+using System.Collections.Concurrent;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace AutoUpload.WinForm;
 
@@ -350,7 +348,7 @@ public partial class Form1 : Form, IDisposable
 #if DEBUG
                 MessageBox.Show("读取待上传文件列表失败：" + ex.Message);
 #elif RELEASE
-                labelUploadHintPrint("读取待上传文件列表失败");
+                LabelUploadHintPrint("读取待上传文件列表失败");
 #endif
                 log.Error("读取待上传文件列表失败", ex);
                 // 换页
@@ -625,13 +623,13 @@ public partial class Form1 : Form, IDisposable
                     #region 查询已有列表
                     // 用get去查型号规格对应的ID
                     log.Info($"查询型号规格对应的ID...");
-                    log.Info($"访问地址: {writeURL}?partsCode={newPartsCode}&specification={fileNameParts?[1]}");
+                    log.Info($"访问地址: {writeURL}?partsCode={newPartsCode}&specification={fileNameParts?[1].TrimEnd('F', 'Z')}");
                     // 如果没有新型号,则使用原来的型号
                     var queryData = await HttpRetryHelper.RetryHttpRequestAsync<MouldSizesCutterResponseModel>(
                         async () => await httpClient.GetAsync(
-                            $"{writeURL}?partsCode={newPartsCode}&specification={fileNameParts?[1]}"
+                            $"{writeURL}?partsCode={newPartsCode}&specification={fileNameParts?[1].TrimEnd('F', 'Z')}"
                         ),
-                        requestInfo: $"查询型号规格 - partsCode: {newPartsCode}, specification: {fileNameParts?[1]}"
+                        requestInfo: $"查询型号规格 - partsCode: {newPartsCode}, specification: {fileNameParts?[1].TrimEnd('F', 'Z')}"
                     );
 
                     if (queryData?.code != "00")
@@ -673,10 +671,10 @@ public partial class Form1 : Form, IDisposable
                     }
 
                     // 如果没有找到对应的刀模编号,则跳过上传
-                    if (listData?.data?.records?.All(record => record?.specification != fileNameParts?[1]) ?? true)
+                    if (listData?.data?.records?.All(record => double.Parse(record?.specification ?? "0") != double.Parse(fileNameParts?[1].TrimEnd('F', 'Z') ?? "0")) ?? true)
                     {
-                        log.Warn($"没有找到对应的刀模编号,请检查型号和规格是否正确: {newPartsCode} {fileNameParts?[1]}");
-                        LabelUploadHintPrint($"没有找到对应的刀模编号,请检查型号和规格是否已录入: {newPartsCode} {fileNameParts?[1]}");
+                        log.Warn($"没有找到对应的刀模编号,请检查型号和规格是否正确: {newPartsCode} {fileNameParts?[1].TrimEnd('F', 'Z')}");
+                        LabelUploadHintPrint($"没有找到对应的刀模编号,请检查型号和规格是否已录入: {newPartsCode} {fileNameParts?[1].TrimEnd('F', 'Z')}");
                         continue;
                     }
                     #endregion
@@ -728,8 +726,7 @@ public partial class Form1 : Form, IDisposable
                         );
                     }
 
-                    // 调用上传接口                                    
-
+                    // 调用上传接口
                     // 获取响应体内容
                     try
                     {
@@ -823,20 +820,31 @@ public partial class Form1 : Form, IDisposable
                 foreach (var responseInfo in responseInfos ?? [])
                 {
                     // 构造写入接口需要的数据
-                    var jsonContent = JsonSerializer.Serialize(new MouldSizesCutterRequestModel()
+                    // 注意这个接口必须按照列表去输入
+                    List<MouldSizesCutterRequestModel> mouldSizesCutterRequestModelContentList = [];
+
+                    mouldSizesCutterRequestModelContentList.Add(new MouldSizesCutterRequestModel()
                     {
-                        containerNum = responseInfo?.Item2?.data?.FirstOrDefault()?.containerNum ?? 0,
-                        cutterBlankSpec = (responseInfo?.Item2?.data?.FirstOrDefault()?.cutterBlankSpec ?? 0).ToString(),
-                        cutterType = responseInfo?.Item2?.data?.FirstOrDefault()?.cutterType ?? 0,
-                        fileId = long.Parse(responseInfo?.Item4?.data?.FirstOrDefault()?.fileId ?? "0"),
+                        // 没有就是null
+                        containerNum = responseInfo?.Item2?.data?.FirstOrDefault()?.containerNum,
+                        // 这里放置规格,去掉结尾的字母,表示正反只会出现F和Z
+                        cutterBlankSpec = responseInfo?.Item1?.Split()?[1].TrimEnd('F', 'Z'),
+                        // 规格结尾带F的为2,带Z或者不带的都是1
+                        cutterType = (responseInfo?.Item1?.Split()?[1].ToArray().Last() == 'F') ? 2 : 1,
+                        // 不要使用默认值,有空直接用空
+                        fileId = long.TryParse(responseInfo?.Item4?.data?.FirstOrDefault()?.fileId, out _) ? long.Parse(responseInfo?.Item4?.data?.FirstOrDefault()?.fileId) : null,
                         // 取数据时候尽可能用靠后的接口的响应,免得中间有修改忘记处理
-                        fileName = responseInfo?.Item4?.data?.FirstOrDefault()?.fileName ?? string.Empty,
-                        fileUrl = responseInfo?.Item4?.data?.FirstOrDefault()?.fileUrl ?? string.Empty,
-                        mouldSizeCutterId = long.Parse(responseInfo?.Item2?.data?.FirstOrDefault()?.mouldSizeCutterId ?? "0"),
+                        fileName = responseInfo?.Item4?.data?.FirstOrDefault()?.fileName,
+                        // 有空直接输出null
+                        fileUrl = responseInfo?.Item4?.data?.FirstOrDefault()?.fileUrl,
+                        // 刀模编号,如果没有就null
+                        mouldSizeCutterId = long.TryParse(responseInfo?.Item2?.data?.FirstOrDefault()?.mouldSizeCutterId, out _) ? long.Parse(responseInfo?.Item2?.data?.FirstOrDefault()?.mouldSizeCutterId) : null,
                         // 刀模编号从刀模编号列表查询接口中获取
-                        mouldSizeId = long.Parse(responseInfo?.Item3?.data?.records?.First(record => record?.specification?.Split('.')?[0] == responseInfo?.Item1?.Split()?[1])?.mouldSizeId ?? "0"),
-                        seq = responseInfo?.Item2?.data?.FirstOrDefault()?.seq ?? 0
-                    }, new JsonSerializerOptions { WriteIndented = true });
+                        mouldSizeId = long.Parse(responseInfo?.Item3?.data?.records?.First(record => record?.specification?.Split('.')?[0] == responseInfo?.Item1?.Split()?[1].TrimEnd('F', 'Z'))?.mouldSizeId ?? "0"),
+                        // 默认使用1
+                        seq = responseInfo?.Item2?.data?.FirstOrDefault()?.seq ?? 1
+                    });
+                    var jsonContent = JsonSerializer.Serialize(mouldSizesCutterRequestModelContentList, new JsonSerializerOptions { WriteIndented = true });
                     log.Info($"{jsonContent}");
 
                     // 开始写入

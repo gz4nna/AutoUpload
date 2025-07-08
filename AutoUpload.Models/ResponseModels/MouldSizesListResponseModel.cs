@@ -81,6 +81,9 @@ public class MouldSizesListResponseDataRecordsModel
     public string? zimageUrl { get; set; } = string.Empty;
 }
 
+/// <summary>
+/// 模具尺寸图片模型
+/// </summary>
 public class MouldSizeImageVOModel
 {
     [JsonConverter(typeof(FlexibleStringConverter))]
@@ -92,6 +95,9 @@ public class MouldSizeImageVOModel
     public int? seq { get; set; } = 0;
 }
 
+/// <summary>
+/// 模具尺寸术语模型
+/// </summary>
 public class MouldSizeTermSVOModel
 {
     [JsonConverter(typeof(FlexibleStringConverter))]

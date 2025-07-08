@@ -51,9 +51,20 @@ public class DelayFileSystemWatcherHelper : IDisposable
         };
     }
 
+    /// <summary>
+    /// 开始监控
+    /// </summary>
     public void Start() => watcher.EnableRaisingEvents = true;
+    /// <summary>
+    /// 停止监控
+    /// </summary>
     public void Stop() => watcher.EnableRaisingEvents = false;
 
+    /// <summary>
+    /// 文件变更事件处理
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
     private void OnFileChanged(object sender, FileSystemEventArgs e)
     {
         lock (lockObj)
@@ -70,6 +81,11 @@ public class DelayFileSystemWatcherHelper : IDisposable
         }
     }
 
+    /// <summary>
+    /// 文件重命名事件处理
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
     private void OnFileRenamed(object sender, RenamedEventArgs e)
     {
         lock (lockObj)
@@ -86,6 +102,9 @@ public class DelayFileSystemWatcherHelper : IDisposable
         }
     }
 
+    /// <summary>
+    /// 释放资源
+    /// </summary>
     public void Dispose()
     {
         watcher.Dispose();
