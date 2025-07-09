@@ -7,6 +7,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AutoUpload.WinForm", "AutoU
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AutoUpload.Models", "..\AutoUpload.Models\AutoUpload.Models.csproj", "{BCE07F17-F4A9-4751-A4BB-1022A3E5E5BC}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AutoUpload.WinFormTests", "..\AutoUpload.WinFormTests\AutoUpload.WinFormTests.csproj", "{E5CEAFB3-0F78-4DE9-8B7A-BC039B2CB610}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +23,10 @@ Global
 		{BCE07F17-F4A9-4751-A4BB-1022A3E5E5BC}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{BCE07F17-F4A9-4751-A4BB-1022A3E5E5BC}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{BCE07F17-F4A9-4751-A4BB-1022A3E5E5BC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E5CEAFB3-0F78-4DE9-8B7A-BC039B2CB610}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E5CEAFB3-0F78-4DE9-8B7A-BC039B2CB610}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E5CEAFB3-0F78-4DE9-8B7A-BC039B2CB610}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E5CEAFB3-0F78-4DE9-8B7A-BC039B2CB610}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
