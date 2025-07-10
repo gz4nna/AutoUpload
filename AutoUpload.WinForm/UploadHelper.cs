@@ -549,27 +549,38 @@ public class UploadHelper
         List<(string?, MouldSizesCutterResponseModel?, MouldSizesListResponseModel?, FileStorageUploadParamResponseModel?, string?)?>? responseInfos)
     {
         var pendingState = JsonSerializer.Deserialize<UploadState>(File.ReadAllText(UploadTrackerPaths.PendingPath));
+        string ExceptionMessage = "";
         // 调用写入接口       
         // 所有文件分开写入,避免一次性全部失败
         foreach (var responseInfo in responseInfos ?? [])
         {
-            // 构造写入接口需要的数据
-            var jsonContent = CreateJsonContentForFileWritingInterface(responseInfo);
-
-            // 开始写入
-            await WriteFileToServer(jsonContent, responseInfo);
-
-            // 添加这次上传成功的记录,文件名为空的情况不可能出现
-            uploadedFiles?.Add(new()
+            try
             {
-                // 这里使用原名
-                fileName = Path.GetFileName(responseInfo?.Item1) ?? "",
-                uploadTime = responseInfo?.Item4?.timestamp ?? DateTime.Now.ToString()
-            });
+                // 构造写入接口需要的数据
+                var jsonContent = CreateJsonContentForFileWritingInterface(responseInfo);
 
-            // 删除 pending.json 中上传成功的文件
-            pendingState?.FilesToUpload.Remove(Path.GetFileName(responseInfo?.Item1) ?? string.Empty);
+                // 开始写入
+                await WriteFileToServer(jsonContent, responseInfo);
+
+                // 添加这次上传成功的记录,文件名为空的情况不可能出现
+                uploadedFiles?.Add(new()
+                {
+                    // 这里使用原名
+                    fileName = Path.GetFileName(responseInfo?.Item1) ?? "",
+                    uploadTime = responseInfo?.Item4?.timestamp ?? DateTime.Now.ToString()
+                });
+
+                // 删除 pending.json 中上传成功的文件
+                pendingState?.FilesToUpload.Remove(Path.GetFileName(responseInfo?.Item1) ?? string.Empty);
+            }
+            // 发生异常后先继续执行后面的写入,等全部执行结束了再去抛出总的异常
+            catch (Exception ex)
+            {
+                ExceptionMessage += ex.Message + "\n";
+            }
         }
+
+        if (ExceptionMessage != "") throw new Exception($"{ExceptionMessage}");
 
         // 写回 pending.json
         await File.WriteAllTextAsync(UploadTrackerPaths.PendingPath, JsonSerializer.Serialize(pendingState, jsonSerializerOptions));
@@ -597,10 +608,11 @@ public class UploadHelper
         List<MouldSizesCutterRequestModel> mouldSizesCutterRequestModelContentList = [];
 
 #pragma warning disable CS8604 // 可能的 null 引用参数
+        var spec = Path.GetFileNameWithoutExtension(responseInfo?.Item1)?.Split()?[1].TrimEnd('F', 'Z');
         // 柜号,没有就是null
         var containerNum = responseInfo?.Item2?.data?.FirstOrDefault()?.containerNum;
         // 刀模规格,去掉结尾的字母,表示正反只会出现F和Z
-        var cutterBlankSpec = Path.GetFileNameWithoutExtension(responseInfo?.Item1)?.Split()?[1].TrimEnd('F', 'Z');
+        var cutterBlankSpec = spec;
         // 刀模类型,规格结尾带F的为2,带Z或者不带的都是1
         var cutterType = (Path.GetFileNameWithoutExtension(responseInfo?.Item1)?.Split()?[1].ToArray().Last() == 'F') ? 2 : 1;
         // 文件id,不要使用默认值,有空直接用空
@@ -616,8 +628,19 @@ public class UploadHelper
             long.Parse(responseInfo?.Item2?.data?.FirstOrDefault()?.mouldSizeCutterId) :
             null;
         // 刀模尺寸编号从刀模编号列表查询接口中获取
-        var mouldSizeId = long.Parse(responseInfo?.Item3?.data?.records?
-            .First(record => record?.specification?.Split('.')?[0] == Path.GetFileNameWithoutExtension(responseInfo?.Item1)?.Split()?[1].TrimEnd('F', 'Z'))?.mouldSizeId ?? "0");
+        long? mouldSizeId = null;
+        // 有很多规格时查不到的,这里针对做出提示免得以为是我的问题
+        if (responseInfo?.Item3?.data?.records
+            ?.Any(record =>
+            record?.specification?.Split('.')?[0] == spec) ?? false)
+        {
+            mouldSizeId = long.Parse(responseInfo?.Item3?.data?.records?
+            .First(record => record?.specification?.Split('.')?[0] == spec)?.mouldSizeId ?? "0");
+        }
+        else
+        {
+            throw new Exception($"没有找到对应的刀模尺寸编号: {Path.GetFileNameWithoutExtension(responseInfo?.Item1)}");
+        }
         // 默认使用1
         var seq = responseInfo?.Item2?.data?.FirstOrDefault()?.seq ?? 1;
 
