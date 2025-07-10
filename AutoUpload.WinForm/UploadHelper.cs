@@ -8,36 +8,84 @@ using System.Text.Json;
 namespace AutoUpload.WinForm;
 
 /// <summary>
-/// Provides functionality for managing and uploading files, including preparing files for upload, querying necessary
-/// metadata, and handling the upload process.
+/// 提供文件上传、元数据查询、上传记录管理等功能的单例帮助类。
+/// 该类负责与主窗体解耦，通过事件委托方式向UI层反馈上传进度、状态和结果。
 /// </summary>
-/// <remarks>This class implements a singleton pattern to ensure a single instance is used throughout the
-/// application. It provides events for updating the UI with upload status and manages the upload of files to a remote
-/// server.</remarks>
 public class UploadHelper
 {
+    #region 变量
     private static readonly ILog log = LogManager.GetLogger(typeof(UploadHelper));
 
+    /// <summary>
+    /// 获取 UploadHelper 单例实例。
+    /// </summary>
     public static UploadHelper Instance { get; } = new UploadHelper();
 
-    // 往主窗体上传提示信息
+    private static readonly JsonSerializerOptions jsonSerializerOptions = new() { WriteIndented = true };
+
+    /// <summary>
+    /// 上传提示信息事件委托。
+    /// </summary>
+    /// <param name="message">要显示在主窗体上的提示文本，通常用于反馈上传进度、错误或结果。</param>
     public delegate void LabelUploadHintPrintDelegate(string message);
-    // 用于打印上传提示信息的事件
+    /// <summary>
+    /// 上传提示信息事件。
+    /// 订阅此事件可在UI层显示上传相关的提示信息。
+    /// </summary>
     public event LabelUploadHintPrintDelegate? LabelUploadHintPrint;
 
-    public delegate void ListBoxPendingUploadDelegate(List<(string?, MouldSizesCutterResponseModel?, MouldSizesListResponseModel?, FileStorageUploadParamResponseModel?, MouldSizesCutterRequestModel?)?>? responseInfos);
+    /// <summary>
+    /// 待上传文件列表更新事件委托。
+    /// </summary>
+    /// <param name="responseInfos">
+    /// 包含待上传文件及其相关元数据的元组列表。
+    /// <list type="bullet">
+    /// <item><description>Item1: <c>string?</c> - 文件名（含扩展名）。</description></item>
+    /// <item><description>Item2: <c>MouldSizesCutterResponseModel?</c> - 型号规格查询响应对象。</description></item>
+    /// <item><description>Item3: <c>MouldSizesListResponseModel?</c> - 刀模编号查询响应对象。</description></item>
+    /// <item><description>Item4: <c>FileStorageUploadParamResponseModel?</c> - 上传参数响应对象。</description></item>
+    /// <item><description>Item5: <c>string?</c> - 新型号（如有）。</description></item>
+    /// </list>
+    /// </param>
+    public delegate void ListBoxPendingUploadDelegate(List<(string?, MouldSizesCutterResponseModel?, MouldSizesListResponseModel?, FileStorageUploadParamResponseModel?, string?)?>? responseInfos);
+    /// <summary>
+    /// 待上传文件列表更新事件。
+    /// 订阅此事件可在UI层同步更新待上传文件列表。
+    /// </summary>
     public event ListBoxPendingUploadDelegate? ListBoxPendingUpload;
 
+    /// <summary>
+    /// 已上传文件列表更新事件委托。
+    /// </summary>
+    /// <param name="uploadedFiles">已上传文件的模型列表，每个元素包含文件名和上传时间等信息。</param>
     public delegate void ListBoxUploadedDelegate(List<UploadJsonModel>? uploadedFiles);
+    /// <summary>
+    /// 已上传文件列表更新事件。
+    /// 订阅此事件可在UI层同步更新已上传文件列表。
+    /// </summary>
     public event ListBoxUploadedDelegate? ListBoxUploaded;
 
-    public string watchPath { get; set; } = string.Empty;
+    private string? watchPath;
     /// <summary>
-    /// 上传的目标URL
+    /// 获取或设置当前监控的本地文件夹路径。
+    /// 若未设置则默认为C盘根目录。
+    /// </summary>
+    public string? WatchPath
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(watchPath)) return "C:\\";// 默认路径为C盘根目录
+            return watchPath;
+        }
+        set => watchPath = value;
+    }
+    /// <summary>
+    /// 上传的目标URL。
     /// </summary>
     private string? targetURL;
     /// <summary>
-    /// Gets or sets the target URL for the operation.
+    /// 获取或设置上传目标URL，必须为有效的绝对URI。
+    /// 用于文件实际上传的接口地址。
     /// </summary>
     public string? TargetURL
     {
@@ -51,11 +99,12 @@ public class UploadHelper
         }
     }
     /// <summary>
-    /// 写入的URL
+    /// 写入的URL。
     /// </summary>
     private string? writeURL;
     /// <summary>
-    /// Gets or sets the URL used for write operations.
+    /// 获取或设置写入操作的URL，必须为有效的绝对URI。
+    /// 用于写入上传记录或元数据的接口地址。
     /// </summary>
     public string? WriteURL
     {
@@ -68,11 +117,12 @@ public class UploadHelper
         }
     }
     /// <summary>
-    /// 根据旧型号查找新型号的接口地址
+    /// 查询新型号的接口地址。
     /// </summary>
     private string? queryURL;
     /// <summary>
-    /// Gets or sets the query URL used for accessing the target resource.
+    /// 获取或设置查询新型号的URL，必须为有效的绝对URI。
+    /// 用于根据旧型号查找新型号。
     /// </summary>
     public string? QueryURL
     {
@@ -85,11 +135,12 @@ public class UploadHelper
         }
     }
     /// <summary>
-    /// 第一次上传的时候用来查询 mouldSizeId 的接口地址
+    /// 查询 mouldSizeId 的接口地址。
     /// </summary>
     private string? listURL;
     /// <summary>
-    /// Gets or sets the URL for the list endpoint.
+    /// 获取或设置 mouldSizeId 查询接口的URL，必须为有效的绝对URI。
+    /// 用于首次上传时查询刀模尺寸编号。
     /// </summary>
     public string? ListURL
     {
@@ -101,34 +152,34 @@ public class UploadHelper
             log.Info($"读取配置文件: <ListURL> {value}");
         }
     }
+    #endregion
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="UploadHelper"/> class.
+    /// 私有构造函数，确保单例模式。
     /// </summary>
-    /// <remarks>This constructor is private to enforce the singleton pattern, preventing direct instantiation
-    /// of the <see cref="UploadHelper"/> class.</remarks>
-    private UploadHelper()
-    {
-        // 私有构造函数，确保单例模式
-    }
+    private UploadHelper() { }
 
     #region 获取必要参数
     /// <summary>
-    /// Prepares a list of files for upload by verifying their existence and gathering necessary metadata.
+    /// 检查待上传文件是否存在，并查询每个文件所需的元数据，准备上传。
     /// </summary>
-    /// <remarks>This method checks if each file in the pending files list exists in the specified directory.
-    /// It retrieves updated part codes and checks if the files need to be uploaded based on existing data. Files that
-    /// do not need to be uploaded are logged and skipped. Any errors encountered during the process are logged, and a
-    /// failure message is displayed to the user.</remarks>
-    /// <param name="responseInfos">A list to store tuples containing file information and metadata required for upload. Each tuple includes the
-    /// file name, cutter response model, list response model, upload parameter response model, and cutter request
-    /// model.</param>
-    /// <returns></returns>
-    public List<(string?, MouldSizesCutterResponseModel?, MouldSizesListResponseModel?, FileStorageUploadParamResponseModel?, MouldSizesCutterRequestModel?)?>? PrepareToUpload(
+    /// <param name="pendingFiles">待上传文件名集合（通常为文件名，包含型号和规格）。</param>
+    /// <param name="responseInfos">
+    /// 用于收集每个文件相关元数据的元组列表。
+    /// <list type="bullet">
+    /// <item><description>Item1: <c>string?</c> - 文件名（含扩展名）。</description></item>
+    /// <item><description>Item2: <c>MouldSizesCutterResponseModel?</c> - 型号规格查询响应对象。</description></item>
+    /// <item><description>Item3: <c>MouldSizesListResponseModel?</c> - 刀模编号查询响应对象。</description></item>
+    /// <item><description>Item4: <c>FileStorageUploadParamResponseModel?</c> - 上传参数响应对象。</description></item>
+    /// <item><description>Item5: <c>string?</c> - 新型号（如有）。</description></item>
+    /// </list>
+    /// </param>
+    /// <returns>异步任务，返回包含所有准备好上传文件及其元数据的元组列表。</returns>
+    public async Task<List<(string?, MouldSizesCutterResponseModel?, MouldSizesListResponseModel?, FileStorageUploadParamResponseModel?, string?)?>?> PrepareToUpload(
         ConcurrentBag<string>? pendingFiles,
-        List<(string?, MouldSizesCutterResponseModel?, MouldSizesListResponseModel?, FileStorageUploadParamResponseModel?, MouldSizesCutterRequestModel?)?>? responseInfos)
+        List<(string?, MouldSizesCutterResponseModel?, MouldSizesListResponseModel?, FileStorageUploadParamResponseModel?, string?)?>? responseInfos)
     {
-        (pendingFiles?.ToList() ?? []).ForEach(async (file) =>
+        foreach (var file in pendingFiles?.ToList() ?? [])
         {
             try
             {
@@ -150,7 +201,7 @@ public class UploadHelper
                 var listData = await QueryMouldSizeId(newPartsCode, fileNameParts?[1].TrimEnd('F', 'Z'));
 
                 // 如果是新的编号记下来准备上传
-                responseInfos?.Add((file, queryData, listData, null, null));
+                responseInfos?.Add((file, queryData, listData, null, newPartsCode));
             }
             catch (Exception ex)
             {
@@ -158,21 +209,16 @@ public class UploadHelper
                 log.Error("上传过程发生错误", ex);
                 LabelUploadHintPrint?.Invoke("上传失败，请查看日志");
             }
-        });
+        }
 
         return responseInfos;
     }
 
     /// <summary>
-    /// Asynchronously queries the new parts code corresponding to the specified old parts code.
+    /// 异步查询旧型号对应的新型号。
     /// </summary>
-    /// <remarks>This method attempts to retrieve the new parts code by making an HTTP request. If the new
-    /// parts code cannot be found, the method returns the provided old parts code. Ensure that the <paramref
-    /// name="oldPartsCode"/> is correctly formatted and not <see langword="null"/> if a valid query is
-    /// expected.</remarks>
-    /// <param name="oldPartsCode">The old parts code to query. Can be <see langword="null"/>.</param>
-    /// <returns>A task that represents the asynchronous operation. The task result contains the new parts code if found;
-    /// otherwise, returns the original <paramref name="oldPartsCode"/>.</returns>
+    /// <param name="oldPartsCode">旧型号代码。</param>
+    /// <returns>异步任务，返回新型号代码；如果查询失败，则返回原始旧型号代码。</returns>
     private async Task<string?> QueryNewPartsCodeByOldPartsCode(string? oldPartsCode)
     {
         var httpClient = HttpRetryHelper.GetClient();
@@ -189,17 +235,16 @@ public class UploadHelper
         );
 
         // 查到了返回新型号,没查到依然使用旧型号
-        return partsAttrValueQueryData?.data?.First()?.partsCode ?? oldPartsCode;
+        return (partsAttrValueQueryData?.data?.Count == 0) ? oldPartsCode : partsAttrValueQueryData?.data?.First()?.partsCode ?? oldPartsCode;
     }
 
     /// <summary>
-    /// Queries the mould size identifier based on the specified parts code and specification.
+    /// 查询刀模尺寸编号。
     /// </summary>
-    /// <param name="newPartsCode">The parts code used to identify the mould size. Can be <see langword="null"/>.</param>
-    /// <param name="specification">The specification used to match the mould size. Can be <see langword="null"/>.</param>
-    /// <returns>A task that represents the asynchronous operation. The task result contains a <see
-    /// cref="MouldSizesListResponseModel"/> if the query is successful; otherwise, <see langword="null"/>.</returns>
-    /// <exception cref="Exception">Thrown if the query for the mould size identifier fails or if no matching mould size is found.</exception>
+    /// <param name="newPartsCode">新型号代码。</param>
+    /// <param name="specification">刀模规格。</param>
+    /// <returns>异步任务，返回刀模尺寸编号查询响应模型。</returns>
+    /// <exception cref="Exception">如果查询失败或未找到匹配的刀模尺寸编号，则抛出异常。</exception>
     private async Task<MouldSizesListResponseModel?> QueryMouldSizeId(string? newPartsCode, string? specification)
     {
         var httpClient = HttpRetryHelper.GetClient();
@@ -226,17 +271,12 @@ public class UploadHelper
     }
 
     /// <summary>
-    /// Queries the list of mould sizes and cutters based on the specified parts code and file name parts.
+    /// 查询型号规格对应的刀模列表。
     /// </summary>
-    /// <remarks>This method performs an HTTP request to retrieve data about mould sizes and cutters. If the
-    /// query does not return any data, it indicates that the uploaded file is for a new specification and should be
-    /// uploaded. If the file name parts contain a number and the file already exists, the upload is skipped.</remarks>
-    /// <param name="newPartsCode">The parts code to query. This parameter can be <see langword="null"/>.</param>
-    /// <param name="fileNameParts">An array of strings representing parts of the file name. The second element is used to determine the
-    /// specification. This parameter can be <see langword="null"/>.</param>
-    /// <returns>A <see cref="MouldSizesCutterResponseModel"/> containing the query results, or <see langword="null"/> if no data
-    /// is found.</returns>
-    /// <exception cref="Exception">Thrown if the query fails or if the file already exists in the specified mould specification.</exception>
+    /// <param name="newPartsCode">新型号代码。</param>
+    /// <param name="fileNameParts">文件名拆分后的数组。</param>
+    /// <returns>异步任务，返回型号规格查询响应模型。</returns>
+    /// <exception cref="Exception">如果查询失败或文件已存在于型号规格中，则抛出异常。</exception>
     private async Task<MouldSizesCutterResponseModel?> QueryContainedMouldList(string? newPartsCode, string[]? fileNameParts)
     {
         // 去除型号后的正反标识
@@ -269,21 +309,21 @@ public class UploadHelper
 
     #region 上传文件
     /// <summary>
-    /// Asynchronously uploads a list of files to a remote server.
+    /// 异步上传文件到远程服务器。
     /// </summary>
-    /// <remarks>This method attempts to upload each file in the provided list. If a file upload is
-    /// successful, the corresponding response information is updated with the upload response. If the upload fails or
-    /// an exception occurs, the file is removed from the list. The method uses an HTTP client with retry logic to
-    /// handle transient network errors.</remarks>
-    /// <param name="responseInfos">A list of tuples containing file information and associated response models. Each tuple may contain: <list
-    /// type="bullet"> <item><description>The file path as a string.</description></item> <item><description>A <see
-    /// cref="MouldSizesCutterResponseModel"/> instance.</description></item> <item><description>A <see
-    /// cref="MouldSizesListResponseModel"/> instance.</description></item> <item><description>A <see
-    /// cref="FileStorageUploadParamResponseModel"/> instance.</description></item> <item><description>A <see
-    /// cref="MouldSizesCutterRequestModel"/> instance.</description></item> </list></param>
-    /// <returns></returns>
-    public async Task<List<(string?, MouldSizesCutterResponseModel?, MouldSizesListResponseModel?, FileStorageUploadParamResponseModel?, MouldSizesCutterRequestModel?)?>?> UploadFile(
-        List<(string?, MouldSizesCutterResponseModel?, MouldSizesListResponseModel?, FileStorageUploadParamResponseModel?, MouldSizesCutterRequestModel?)?>? responseInfos)
+    /// <param name="responseInfos">
+    /// 待上传文件及其相关元数据的元组列表。
+    /// <list type="bullet">
+    /// <item><description>Item1: <c>string?</c> - 文件名（含扩展名）。</description></item>
+    /// <item><description>Item2: <c>MouldSizesCutterResponseModel?</c> - 型号规格查询响应对象。</description></item>
+    /// <item><description>Item3: <c>MouldSizesListResponseModel?</c> - 刀模编号查询响应对象。</description></item>
+    /// <item><description>Item4: <c>FileStorageUploadParamResponseModel?</c> - 上传参数响应对象。</description></item>
+    /// <item><description>Item5: <c>string?</c> - 新型号（如有）。</description></item>
+    /// </list>
+    /// </param>
+    /// <returns>异步任务，返回上传成功的文件及其元数据的元组列表。</returns>
+    public async Task<List<(string?, MouldSizesCutterResponseModel?, MouldSizesListResponseModel?, FileStorageUploadParamResponseModel?, string?)?>?> UploadFile(
+        List<(string?, MouldSizesCutterResponseModel?, MouldSizesListResponseModel?, FileStorageUploadParamResponseModel?, string?)?>? responseInfos)
     {
         var httpClient = HttpRetryHelper.GetClient();
 
@@ -311,7 +351,7 @@ public class UploadHelper
                         responseInfos.IndexOf(
                             responseInfos.First(response => response?.Item1 == file)
                         )
-                    ] = (file, responseInfos.Last()?.Item2, responseInfos.Last()?.Item3, uploadResponse, null);
+                    ] = (file, responseInfos.Last()?.Item2, responseInfos.Last()?.Item3, uploadResponse, responseInfos.Last()?.Item5);
 #pragma warning restore CS8602 // 解引用可能出现空引用。
                 }
                 // 如果上传失败,则从responseInfos中移除该文件
@@ -343,22 +383,24 @@ public class UploadHelper
     }
 
     /// <summary>
-    /// Creates a <see cref="MultipartFormDataContent"/> object for uploading a file with optional metadata.
+    /// 构造上传文件的表单内容。
     /// </summary>
-    /// <param name="file">The name of the file to be uploaded. Cannot be null.</param>
-    /// <param name="responseInfo">A tuple containing optional metadata related to the file upload. The tuple may include: <list type="bullet">
-    /// <item><description>A string representing additional information.</description></item> <item><description>A <see
-    /// cref="MouldSizesCutterResponseModel"/> object for response data.</description></item> <item><description>A <see
-    /// cref="MouldSizesListResponseModel"/> object for list data.</description></item> <item><description>A <see
-    /// cref="FileStorageUploadParamResponseModel"/> object for upload parameters.</description></item>
-    /// <item><description>A <see cref="MouldSizesCutterRequestModel"/> object for request data.</description></item>
-    /// </list></param>
-    /// <returns>A <see cref="MultipartFormDataContent"/> object containing the file and its metadata for upload. Returns <see
-    /// langword="null"/> if the file path is empty.</returns>
-    /// <exception cref="Exception">Thrown if <paramref name="file"/> is null.</exception>
+    /// <param name="file">文件路径。</param>
+    /// <param name="responseInfo">
+    /// 文件相关元数据的元组。
+    /// <list type="bullet">
+    /// <item><description>Item1: <c>string?</c> - 文件名（含扩展名）。</description></item>
+    /// <item><description>Item2: <c>MouldSizesCutterResponseModel?</c> - 型号规格查询响应对象。</description></item>
+    /// <item><description>Item3: <c>MouldSizesListResponseModel?</c> - 刀模编号查询响应对象。</description></item>
+    /// <item><description>Item4: <c>FileStorageUploadParamResponseModel?</c> - 上传参数响应对象。</description></item>
+    /// <item><description>Item5: <c>string?</c> - 新型号（如有）。</description></item>
+    /// </list>
+    /// </param>
+    /// <returns>上传表单内容。</returns>
+    /// <exception cref="Exception">如果文件路径为空，则抛出异常。</exception>
     private MultipartFormDataContent? CreateUploadMultipartFormContent(
         string? file,
-        (string?, MouldSizesCutterResponseModel?, MouldSizesListResponseModel?, FileStorageUploadParamResponseModel?, MouldSizesCutterRequestModel?)? responseInfo)
+        (string?, MouldSizesCutterResponseModel?, MouldSizesListResponseModel?, FileStorageUploadParamResponseModel?, string?)? responseInfo)
     {
         var form = new MultipartFormDataContent();
 
@@ -391,20 +433,21 @@ public class UploadHelper
 
     #region 写入服务器
     /// <summary>
-    /// Writes the details of successfully uploaded files to a record and updates the UI lists accordingly.
+    /// 写入上传成功的文件记录，并更新UI列表。
     /// </summary>
-    /// <remarks>This method updates the UI components to reflect the current state of uploaded and pending
-    /// files. It also logs the operation and updates a JSON file with the list of uploaded files.</remarks>
-    /// <param name="responseInfos">A list of tuples containing information about the files to be processed. Each tuple may contain: <list
-    /// type="bullet"> <item><description>The file path as a string.</description></item> <item><description>A <see
-    /// cref="MouldSizesCutterResponseModel"/> object.</description></item> <item><description>A <see
-    /// cref="MouldSizesListResponseModel"/> object.</description></item> <item><description>A <see
-    /// cref="FileStorageUploadParamResponseModel"/> object.</description></item> <item><description>A <see
-    /// cref="MouldSizesCutterRequestModel"/> object.</description></item> </list> Only files that have been
-    /// successfully uploaded are included in this list.</param>
-    /// <returns></returns>
+    /// <param name="responseInfos">
+    /// 上传成功的文件及其相关元数据的元组列表。
+    /// <list type="bullet">
+    /// <item><description>Item1: <c>string?</c> - 文件名（含扩展名）。</description></item>
+    /// <item><description>Item2: <c>MouldSizesCutterResponseModel?</c> - 型号规格查询响应对象。</description></item>
+    /// <item><description>Item3: <c>MouldSizesListResponseModel?</c> - 刀模编号查询响应对象。</description></item>
+    /// <item><description>Item4: <c>FileStorageUploadParamResponseModel?</c> - 上传参数响应对象。</description></item>
+    /// <item><description>Item5: <c>string?</c> - 新型号（如有）。</description></item>
+    /// </list>
+    /// </param>
+    /// <returns>异步任务。</returns>
     public async Task WriteFile(
-        List<(string?, MouldSizesCutterResponseModel?, MouldSizesListResponseModel?, FileStorageUploadParamResponseModel?, MouldSizesCutterRequestModel?)?>? responseInfos)
+        List<(string?, MouldSizesCutterResponseModel?, MouldSizesListResponseModel?, FileStorageUploadParamResponseModel?, string?)?>? responseInfos)
     {
         // 对上传成功的文件进行写入操作
         // 上传失败的前面已经移除了,写入时能看到的都是上传成功的
@@ -434,12 +477,9 @@ public class UploadHelper
     }
 
     /// <summary>
-    /// Asynchronously loads the file path for the monthly upload record.
+    /// 异步加载当前月份的上传记录文件路径。
     /// </summary>
-    /// <remarks>This method checks for the existence of a JSON file named according to the current month and
-    /// year in the upload directory. If the file does not exist, it creates a new empty JSON file.</remarks>
-    /// <returns>A task that represents the asynchronous operation. The task result contains the file path of the monthly upload
-    /// record, or <see langword="null"/> if the operation fails.</returns>
+    /// <returns>异步任务，返回上传记录文件路径。</returns>
     private static async Task<string?> LoadMonthlyRecordName()
     {
         // 新要求,需要将上传记录按照月份保存
@@ -456,15 +496,10 @@ public class UploadHelper
     }
 
     /// <summary>
-    /// Loads the list of uploaded files for the current month from the upload records.
+    /// 加载已上传文件列表。
     /// </summary>
-    /// <remarks>This method checks for the existence of the upload records directory and creates it if it
-    /// does not exist. It reads the upload records for the current month from a JSON file, deserializes them into a
-    /// list of  <see cref="UploadJsonModel"/>, and returns this list. If the monthly record file does not exist, it
-    /// creates  a new file with an empty list. If reading the file fails, a warning is logged, and an empty list is
-    /// returned.</remarks>
-    /// <returns>A list of <see cref="UploadJsonModel"/> representing the uploaded files for the current month, or an empty list
-    /// if the records cannot be read.</returns>
+    /// <param name="monthlyRecord">当前月份的上传记录文件路径。</param>
+    /// <returns>已上传文件的模型列表。</returns>
     private static List<UploadJsonModel>? LoadUploadFiles(string? monthlyRecord)
     {
         // 更新 uploaded.json 文件
@@ -495,23 +530,28 @@ public class UploadHelper
     }
 
     /// <summary>
-    /// Writes files to a server and records the upload details.
+    /// 写入文件记录并更新上传状态。
     /// </summary>
-    /// <remarks>This method processes each file individually to avoid complete failure in case of an error
-    /// with a single file. It updates the pending upload state by removing successfully uploaded files.</remarks>
-    /// <param name="uploadedFiles">A list to store details of successfully uploaded files. This list is updated with the file name and upload time
-    /// for each successful upload.</param>
-    /// <param name="responseInfos">A list of tuples containing information required for file writing and upload tracking. Each tuple includes file
-    /// name, response models, and request model.</param>
-    /// <returns></returns>
+    /// <param name="uploadedFiles">已上传文件的模型列表。</param>
+    /// <param name="responseInfos">
+    /// 上传成功的文件及其相关元数据的元组列表。
+    /// <list type="bullet">
+    /// <item><description>Item1: <c>string?</c> - 文件名（含扩展名）。</description></item>
+    /// <item><description>Item2: <c>MouldSizesCutterResponseModel?</c> - 型号规格查询响应对象。</description></item>
+    /// <item><description>Item3: <c>MouldSizesListResponseModel?</c> - 刀模编号查询响应对象。</description></item>
+    /// <item><description>Item4: <c>FileStorageUploadParamResponseModel?</c> - 上传参数响应对象。</description></item>
+    /// <item><description>Item5: <c>string?</c> - 新型号（如有）。</description></item>
+    /// </list>
+    /// </param>
+    /// <returns>异步任务。</returns>
     private static async Task WriteFileAndRecord(
         List<UploadJsonModel>? uploadedFiles,
-        List<(string?, MouldSizesCutterResponseModel?, MouldSizesListResponseModel?, FileStorageUploadParamResponseModel?, MouldSizesCutterRequestModel?)?>? responseInfos)
+        List<(string?, MouldSizesCutterResponseModel?, MouldSizesListResponseModel?, FileStorageUploadParamResponseModel?, string?)?>? responseInfos)
     {
         var pendingState = JsonSerializer.Deserialize<UploadState>(File.ReadAllText(UploadTrackerPaths.PendingPath));
         // 调用写入接口       
         // 所有文件分开写入,避免一次性全部失败
-        (responseInfos ?? []).ForEach(async (responseInfo) =>
+        foreach (var responseInfo in responseInfos ?? [])
         {
             // 构造写入接口需要的数据
             var jsonContent = CreateJsonContentForFileWritingInterface(responseInfo);
@@ -529,75 +569,97 @@ public class UploadHelper
 
             // 删除 pending.json 中上传成功的文件
             pendingState?.FilesToUpload.Remove(Path.GetFileName(responseInfo?.Item1) ?? string.Empty);
-        });
+        }
 
         // 写回 pending.json
-        await File.WriteAllTextAsync(UploadTrackerPaths.PendingPath, JsonSerializer.Serialize(pendingState, new JsonSerializerOptions { WriteIndented = true }));
+        await File.WriteAllTextAsync(UploadTrackerPaths.PendingPath, JsonSerializer.Serialize(pendingState, jsonSerializerOptions));
     }
 
     /// <summary>
-    /// Creates a JSON string representing the content required for the file writing interface.
+    /// 构造写入接口的JSON内容。
     /// </summary>
-    /// <param name="responseInfo">A tuple containing optional data used to construct the JSON content. The tuple elements include: <list
-    /// type="bullet"> <item><description>A string representing the cutter specification.</description></item>
-    /// <item><description>A <see cref="MouldSizesCutterResponseModel"/> containing cutter response
-    /// data.</description></item> <item><description>A <see cref="MouldSizesListResponseModel"/> containing a list of
-    /// mould sizes.</description></item> <item><description>A <see cref="FileStorageUploadParamResponseModel"/>
-    /// containing file storage parameters.</description></item> <item><description>A <see
-    /// cref="MouldSizesCutterRequestModel"/> for cutter request data.</description></item> </list></param>
-    /// <returns>A JSON string formatted with indentation, representing the list of <see cref="MouldSizesCutterRequestModel"/>
-    /// objects. Returns <see langword="null"/> if the input data is insufficient to construct the JSON content.</returns>
+    /// <param name="responseInfo">
+    /// 文件相关元数据的元组。
+    /// <list type="bullet">
+    /// <item><description>Item1: <c>string?</c> - 文件名（含扩展名）。</description></item>
+    /// <item><description>Item2: <c>MouldSizesCutterResponseModel?</c> - 型号规格查询响应对象。</description></item>
+    /// <item><description>Item3: <c>MouldSizesListResponseModel?</c> - 刀模编号查询响应对象。</description></item>
+    /// <item><description>Item4: <c>FileStorageUploadParamResponseModel?</c> - 上传参数响应对象。</description></item>
+    /// <item><description>Item5: <c>string?</c> - 新型号（如有）。</description></item>
+    /// </list>
+    /// </param>
+    /// <returns>写入接口的JSON内容。</returns>
     private static string? CreateJsonContentForFileWritingInterface(
-        (string?, MouldSizesCutterResponseModel?, MouldSizesListResponseModel?, FileStorageUploadParamResponseModel?, MouldSizesCutterRequestModel?)? responseInfo)
+        (string?, MouldSizesCutterResponseModel?, MouldSizesListResponseModel?, FileStorageUploadParamResponseModel?, string?)? responseInfo)
     {
         // 构造写入接口需要的数据
         // 注意这个接口必须按照列表去输入
         List<MouldSizesCutterRequestModel> mouldSizesCutterRequestModelContentList = [];
 
 #pragma warning disable CS8604 // 可能的 null 引用参数
+        // 柜号,没有就是null
+        var containerNum = responseInfo?.Item2?.data?.FirstOrDefault()?.containerNum;
+        // 刀模规格,去掉结尾的字母,表示正反只会出现F和Z
+        var cutterBlankSpec = Path.GetFileNameWithoutExtension(responseInfo?.Item1)?.Split()?[1].TrimEnd('F', 'Z');
+        // 刀模类型,规格结尾带F的为2,带Z或者不带的都是1
+        var cutterType = (Path.GetFileNameWithoutExtension(responseInfo?.Item1)?.Split()?[1].ToArray().Last() == 'F') ? 2 : 1;
+        // 文件id,不要使用默认值,有空直接用空
+        long? fileId = long.TryParse(responseInfo?.Item4?.data?.FirstOrDefault()?.fileId, out _) ?
+            long.Parse(responseInfo?.Item4?.data?.FirstOrDefault()?.fileId) :
+            null;
+        // 文件名,将原始文件名中的型号替换为新型号
+        var fileName = Path.GetFileName(responseInfo?.Item1)?.Replace(Path.GetFileNameWithoutExtension(responseInfo?.Item1)?.Split()?[0], responseInfo?.Item5);
+        // 文件在文件服务器上的地址,有空直接输出null
+        var fileUrl = responseInfo?.Item4?.data?.FirstOrDefault()?.fileUrl;
+        // 刀模编号,如果没有就null
+        long? mouldSizeCutterId = long.TryParse(responseInfo?.Item2?.data?.FirstOrDefault()?.mouldSizeCutterId, out _) ?
+            long.Parse(responseInfo?.Item2?.data?.FirstOrDefault()?.mouldSizeCutterId) :
+            null;
+        // 刀模尺寸编号从刀模编号列表查询接口中获取
+        var mouldSizeId = long.Parse(responseInfo?.Item3?.data?.records?
+            .First(record => record?.specification?.Split('.')?[0] == Path.GetFileNameWithoutExtension(responseInfo?.Item1)?.Split()?[1].TrimEnd('F', 'Z'))?.mouldSizeId ?? "0");
+        // 默认使用1
+        var seq = responseInfo?.Item2?.data?.FirstOrDefault()?.seq ?? 1;
+
         mouldSizesCutterRequestModelContentList.Add(new MouldSizesCutterRequestModel()
         {
-            // 没有就是null
-            containerNum = responseInfo?.Item2?.data?.FirstOrDefault()?.containerNum,
-            // 这里放置规格,去掉结尾的字母,表示正反只会出现F和Z
-            cutterBlankSpec = responseInfo?.Item1?.Split()?[1].TrimEnd('F', 'Z'),
-            // 规格结尾带F的为2,带Z或者不带的都是1
-            cutterType = (responseInfo?.Item1?.Split()?[1].ToArray().Last() == 'F') ? 2 : 1,
-            // 不要使用默认值,有空直接用空
-            fileId = long.TryParse(responseInfo?.Item4?.data?.FirstOrDefault()?.fileId, out _) ? long.Parse(responseInfo?.Item4?.data?.FirstOrDefault()?.fileId) : null,
-            // 取数据时候尽可能用靠后的接口的响应,免得中间有修改忘记处理
-            fileName = responseInfo?.Item4?.data?.FirstOrDefault()?.fileName,
-            // 有空直接输出null
-            fileUrl = responseInfo?.Item4?.data?.FirstOrDefault()?.fileUrl,
-            // 刀模编号,如果没有就null
-            mouldSizeCutterId = long.TryParse(responseInfo?.Item2?.data?.FirstOrDefault()?.mouldSizeCutterId, out _) ?
-
-            long.Parse(responseInfo?.Item2?.data?.FirstOrDefault()?.mouldSizeCutterId) :
-            null,
-            // 刀模编号从刀模编号列表查询接口中获取
-            mouldSizeId = long.Parse(responseInfo?.Item3?.data?.records?.First(record => record?.specification?.Split('.')?[0] == responseInfo?.Item1?.Split()?[1].TrimEnd('F', 'Z'))?.mouldSizeId ?? "0"),
-            // 默认使用1
-            seq = responseInfo?.Item2?.data?.FirstOrDefault()?.seq ?? 1
+            containerNum = containerNum,
+            cutterBlankSpec = cutterBlankSpec,
+            cutterType = cutterType,
+            fileId = fileId,
+            fileName = fileName,
+            fileUrl = fileUrl,
+            mouldSizeCutterId = mouldSizeCutterId,
+            mouldSizeId = mouldSizeId,
+            seq = seq
         });
 #pragma warning restore CS8604 // 可能的 null 引用参数
 
-        var jsonContent = JsonSerializer.Serialize(mouldSizesCutterRequestModelContentList, new JsonSerializerOptions { WriteIndented = true });
+        var jsonContent = JsonSerializer.Serialize(mouldSizesCutterRequestModelContentList, jsonSerializerOptions);
         log.Info($"{jsonContent}");
 
         return jsonContent;
     }
 
     /// <summary>
-    /// Asynchronously writes JSON content to a server endpoint.
+    /// 异步写入文件到服务器。
     /// </summary>
-    /// <param name="jsonContent">The JSON content to be sent to the server. Can be <see langword="null"/>.</param>
-    /// <param name="responseInfo">A tuple containing optional response information related to the request. Each item in the tuple can be <see
-    /// langword="null"/>.</param>
-    /// <returns></returns>
-    /// <exception cref="Exception">Thrown if the server response indicates a failure, with details of the error and message.</exception>
+    /// <param name="jsonContent">写入接口的JSON内容。</param>
+    /// <param name="responseInfo">
+    /// 文件相关元数据的元组。
+    /// <list type="bullet">
+    /// <item><description>Item1: <c>string?</c> - 文件名（含扩展名）。</description></item>
+    /// <item><description>Item2: <c>MouldSizesCutterResponseModel?</c> - 型号规格查询响应对象。</description></item>
+    /// <item><description>Item3: <c>MouldSizesListResponseModel?</c> - 刀模编号查询响应对象。</description></item>
+    /// <item><description>Item4: <c>FileStorageUploadParamResponseModel?</c> - 上传参数响应对象。</description></item>
+    /// <item><description>Item5: <c>string?</c> - 新型号（如有）。</description></item>
+    /// </list>
+    /// </param>
+    /// <returns>异步任务。</returns>
+    /// <exception cref="Exception">如果写入失败，则抛出异常。</exception>
     private static async Task WriteFileToServer(
         string? jsonContent,
-        (string?, MouldSizesCutterResponseModel?, MouldSizesListResponseModel?, FileStorageUploadParamResponseModel?, MouldSizesCutterRequestModel?)? responseInfo)
+        (string?, MouldSizesCutterResponseModel?, MouldSizesListResponseModel?, FileStorageUploadParamResponseModel?, string?)? responseInfo)
     {
         var writeURL = Properties.Settings.Default.WriteURL;
         var httpClient = HttpRetryHelper.GetClient();
@@ -615,10 +677,25 @@ public class UploadHelper
         if (writeResponse?.code != "00") throw new Exception($"写入数据失败: {writeResponse?.error} {writeResponse?.message}");
     }
 
+    /// <summary>
+    /// 更新UI列表并写入已上传文件记录。
+    /// </summary>
+    /// <param name="uploadedFiles">已上传文件的模型列表。</param>
+    /// <param name="monthlyRecord">当前月份的上传记录文件路径。</param>
+    /// <param name="responseInfos">
+    /// 上传成功的文件及其相关元数据的元组列表。
+    /// <list type="bullet">
+    /// <item><description>Item1: <c>string?</c> - 文件名（含扩展名）。</description></item>
+    /// <item><description>Item2: <c>MouldSizesCutterResponseModel?</c> - 型号规格查询响应对象。</description></item>
+    /// <item><description>Item3: <c>MouldSizesListResponseModel?</c> - 刀模编号查询响应对象。</description></item>
+    /// <item><description>Item4: <c>FileStorageUploadParamResponseModel?</c> - 上传参数响应对象。</description></item>
+    /// <item><description>Item5: <c>string?</c> - 新型号（如有）。</description></item>
+    /// </list>
+    /// </param>
     private async void UpdateListBoxAndFile(
         List<UploadJsonModel>? uploadedFiles,
         string? monthlyRecord,
-        List<(string?, MouldSizesCutterResponseModel?, MouldSizesListResponseModel?, FileStorageUploadParamResponseModel?, MouldSizesCutterRequestModel?)?>? responseInfos)
+        List<(string?, MouldSizesCutterResponseModel?, MouldSizesListResponseModel?, FileStorageUploadParamResponseModel?, string?)?>? responseInfos)
     {
         // 在列表框中显示已上传文件列表
         ListBoxUploaded?.Invoke(uploadedFiles);
@@ -627,7 +704,7 @@ public class UploadHelper
 
         // 写入已上传文件
 #pragma warning disable CS8604 // 可能的 null 引用参数
-        await File.WriteAllTextAsync(monthlyRecord, JsonSerializer.Serialize(uploadedFiles, new JsonSerializerOptions { WriteIndented = true }));
+        await File.WriteAllTextAsync(monthlyRecord, JsonSerializer.Serialize(uploadedFiles, jsonSerializerOptions));
 #pragma warning restore CS8604 // 可能的 null 引用参数
         log.Info($"更新 uploaded.json 文件成功，已添加 {uploadedFiles?.Count} 个文件名");
     }

@@ -9,43 +9,53 @@ using System.Text.RegularExpressions;
 
 namespace AutoUpload.WinForm;
 
+/// <summary>
+/// 主窗体类，负责界面初始化、控件事件处理、文件监控、上传流程控制等。
+/// 该类集成了文件夹监控、上传队列管理、上传进度反馈、日志输出等核心功能。
+/// </summary>
 public partial class Form1 : Form, IDisposable
 {
     #region 成员变量
-    // 日志
+    /// <summary>
+    /// 日志记录器。
+    /// </summary>
     private static readonly ILog log = LogManager.GetLogger(typeof(Form1));
-    // 每小时执行一次的 System.Threading.Timer 定时器
+    /// <summary>
+    /// 每小时执行一次的 System.Threading.Timer 定时器。
+    /// </summary>
     private System.Threading.Timer? timer;
 
-    // 释放资源标记
+    /// <summary>
+    /// 资源释放标记。
+    /// </summary>
     private bool disposed = false;
 
-    // 从settings里面取用
     /// <summary>
-    /// 上传文件的后缀名集合
+    /// 上传文件的后缀名集合。
     /// </summary>
     private string[]? allowedExtensions;
     /// <summary>
-    /// 文件名合法规则
+    /// 文件名合法规则（正则表达式）。
     /// </summary>
     private string? allowedFileNameRules;
 
-    // 私有成员变量
     /// <summary>
-    /// 本地文件夹监视器
+    /// 本地文件夹监视器，负责监控指定目录下的文件变化。
     /// </summary>
     private DelayFileSystemWatcherHelper? watcher;
     /// <summary>
-    /// 待上传的文件列表
+    /// 待上传的文件列表，线程安全集合。
     /// </summary>
     private readonly ConcurrentBag<string>? pendingFiles = [];
+    /// <summary>
+    /// 线程锁对象，用于多线程安全操作待上传文件集合。
+    /// </summary>
     private readonly object _lockObj = new();
-
     #endregion
 
     #region 初始化
     /// <summary>
-    /// 初始化主要窗体的实例,并读取设置和绑定控件。
+    /// 构造函数，初始化主窗体实例，加载配置并绑定控件。
     /// </summary>
     public Form1()
     {
@@ -55,9 +65,9 @@ public partial class Form1 : Form, IDisposable
     }
 
     /// <summary>
-    /// 初始化主要窗体的实例,并读取设置和绑定控件。
+    /// 初始化主窗体，读取配置、初始化控件、加载上传记录、注册事件。
     /// </summary>
-    /// <returns></returns>
+    /// <returns>初始化成功返回true，否则返回false。</returns>
     public bool Init()
     {
         log.Info($"初始化主窗口...");
@@ -220,7 +230,7 @@ public partial class Form1 : Form, IDisposable
     /// <summary>
     /// 初始化文件监视器，监控指定路径的文件变化事件。
     /// </summary>
-    /// <param name="path">需要监视的目录</param>
+    /// <param name="path">需要监视的目录路径。</param>
     private void InitWatcher(string path)
     {
         // 清除之前的监视器
@@ -242,8 +252,8 @@ public partial class Form1 : Form, IDisposable
     /// <summary>
     /// 设置按钮点击事件处理，切换到设置页面。
     /// </summary>
-    /// <param name="sender"></param>
-    /// <param name="e"></param>
+    /// <param name="sender">事件源对象。</param>
+    /// <param name="e">事件参数。</param>
     private void btnSetting_Click(object sender, EventArgs e)
     {
         log.Info($"切换到设置页面");
@@ -251,10 +261,10 @@ public partial class Form1 : Form, IDisposable
     }
 
     /// <summary>
-    /// 点击浏览按钮选择一个目录进行监控。
+    /// 浏览按钮点击事件，弹出文件夹选择对话框，选择监控目录。
     /// </summary>
-    /// <param name="sender"></param>
-    /// <param name="e"></param>
+    /// <param name="sender">事件源对象。</param>
+    /// <param name="e">事件参数。</param>
     private void btnBrowsePath_Click(object sender, EventArgs e)
     {
         log.Info($"浏览按钮被点击，选择目录...");
@@ -274,10 +284,10 @@ public partial class Form1 : Form, IDisposable
     }
 
     /// <summary>
-    /// 日志按钮点击事件处理，切换到日志页面。
+    /// 日志按钮点击事件，切换到日志页面并打开日志目录。
     /// </summary>
-    /// <param name="sender"></param>
-    /// <param name="e"></param>
+    /// <param name="sender">事件源对象。</param>
+    /// <param name="e">事件参数。</param>
     private void btnLog_Click(object sender, EventArgs e)
     {
         log.Info($"切换到日志页面");
@@ -290,16 +300,15 @@ public partial class Form1 : Form, IDisposable
         }
         else
         {
-            //MessageBox.Show($"日志目录不存在: {UploadTrackerPaths.LogFolder}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
             log.Error($"日志目录不存在: {UploadTrackerPaths.LogFolder}");
         }
     }
 
     /// <summary>
-    /// 上传按钮点击事件处理。
+    /// 上传按钮点击事件，触发上传流程。
     /// </summary>
-    /// <param name="sender"></param>
-    /// <param name="e"></param>
+    /// <param name="sender">事件源对象。</param>
+    /// <param name="e">事件参数。</param>
     private async void btnUpload_Click(object sender, EventArgs e)
     {
         string watchPath = txtPath.Text;
@@ -311,12 +320,16 @@ public partial class Form1 : Form, IDisposable
         {
             try
             {
-                var pendingJson = await File.ReadAllTextAsync(UploadTrackerPaths.PendingPath);
-                var state = JsonSerializer.Deserialize<UploadState>(pendingJson);
+                UploadState? state;
+                lock (_lockObj)
+                {
+                    var pendingJson = File.ReadAllText(UploadTrackerPaths.PendingPath);
+                    state = JsonSerializer.Deserialize<UploadState>(pendingJson);
+                }
+
                 if (state == null || state.FilesToUpload.Count == 0)
                 {
                     log.Warn("没有待上传的文件，跳过上传");
-                    //MessageBox.Show("没有待上传的文件");
                     LabelUploadHintPrint("没有待上传的文件");
                     return;
                 }
@@ -354,14 +367,14 @@ public partial class Form1 : Form, IDisposable
     /// <summary>
     /// 上传前的预处理方法，调用 Upload 方法进行文件上传操作。
     /// </summary>
-    /// <returns></returns>
+    /// <returns>异步任务。</returns>
     private async Task UploadPre() => await Upload();
 
     /// <summary>
-    /// 退出按钮点击事件处理，关闭应用程序。
+    /// 退出按钮点击事件，释放资源并关闭应用程序。
     /// </summary>
-    /// <param name="sender"></param>
-    /// <param name="e"></param>
+    /// <param name="sender">事件源对象。</param>
+    /// <param name="e">事件参数。</param>
     private void btnExit_Click(object sender, EventArgs e)
     {
         try
@@ -378,9 +391,9 @@ public partial class Form1 : Form, IDisposable
 
     #region 窗体事件
     /// <summary>
-    /// 关闭时最小化
+    /// 窗体关闭事件，用户关闭时最小化到托盘。
     /// </summary>
-    /// <param name="e"></param>
+    /// <param name="e">窗体关闭事件参数。</param>
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
         // 如果是用户关闭窗口，则最小化到托盘
@@ -394,7 +407,7 @@ public partial class Form1 : Form, IDisposable
     }
 
     /// <summary>
-    /// 点击托盘图标时显示主窗口。
+    /// 显示主窗口（从托盘恢复）。
     /// </summary>
     private void ShowMainWindow()
     {
@@ -406,9 +419,9 @@ public partial class Form1 : Form, IDisposable
 
     #region 监控事件
     /// <summary>
-    /// 更新文件记录方法，处理文件变化事件并更新待上传文件列表。
+    /// 监控文件夹变化，更新待上传文件列表并同步到界面。
     /// </summary>
-    /// <param name="changedFilePath"></param>
+    /// <param name="changedFilePath">发生变化的文件路径，多个路径用|分隔。</param>
     private async void UpdateFileRecord(string changedFilePath = "")
     {
         log.Info($"UpdateFileRecord: {changedFilePath}");
@@ -535,7 +548,10 @@ public partial class Form1 : Form, IDisposable
             };
 
             var pendingJson = JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(UploadTrackerPaths.PendingPath, pendingJson);
+            lock (_lockObj)
+            {
+                File.WriteAllText(UploadTrackerPaths.PendingPath, pendingJson);
+            }
         }
 
         log.Info($"监控更新：总文件 {currentFiles.Count} 个，待上传 {pendingFiles?.Count} 个");
@@ -545,12 +561,17 @@ public partial class Form1 : Form, IDisposable
 
     #region 上传逻辑
     /// <summary>
-    /// Initiates the upload process for files, performing necessary validations and operations.
+    /// 执行上传流程，包括校验、参数准备、文件上传和结果写入。
     /// </summary>
-    /// <remarks>This method performs a series of steps to upload files, including validation of
-    /// prerequisites, preparation of upload parameters, and the actual file upload. It logs any errors encountered
-    /// during the process and provides feedback to the user.</remarks>
-    /// <returns></returns>
+    /// <remarks>
+    /// 步骤包括：
+    /// 1. 校验上传前置条件（如配置、待上传文件等）。
+    /// 2. 调用帮助类准备上传参数。
+    /// 3. 上传文件并处理返回结果。
+    /// 4. 写入上传结果并更新界面。
+    /// 5. 发生异常时记录日志并提示用户。
+    /// </remarks>
+    /// <returns>异步任务。</returns>
     private async Task Upload()
     {
         // 清空上传提示文本
@@ -560,17 +581,17 @@ public partial class Form1 : Form, IDisposable
         if (!ValidateUploadPrerequisites()) return;
 
         // 元组列表放置上传信息
-        List<(string?, MouldSizesCutterResponseModel?, MouldSizesListResponseModel?, FileStorageUploadParamResponseModel?, MouldSizesCutterRequestModel?)?>? responseInfos = [];
+        List<(string?, MouldSizesCutterResponseModel?, MouldSizesListResponseModel?, FileStorageUploadParamResponseModel?, string?)?>? responseInfos = [];
 
         // 请求头设置
         SetUploadClient();
 
         try
         {
-            UploadHelper.Instance.watchPath = txtPath.Text;
+            UploadHelper.Instance.WatchPath = txtPath.Text;
 
             // 获取必要参数,不会抛出异常,只会在日志中记录
-            responseInfos = UploadHelper.Instance.PrepareToUpload(
+            responseInfos = await UploadHelper.Instance.PrepareToUpload(
                 pendingFiles,
                 responseInfos
             );
@@ -596,13 +617,9 @@ public partial class Form1 : Form, IDisposable
 
     #region 参数设置与验证
     /// <summary>
-    /// Validates the current configuration settings for URLs and other required parameters.
+    /// 校验当前配置项（如URL、后缀名、文件名规则等）是否合法。
     /// </summary>
-    /// <remarks>This method checks that all necessary URLs are non-empty and valid, and that other required
-    /// settings such as tenant ID, user ID, allowed extensions, and file name rules are properly set. If any setting is
-    /// invalid, an error is logged and a hint is displayed to the user.</remarks>
-    /// <returns><see langword="true"/> if all required settings are valid and properly configured; otherwise, <see
-    /// langword="false"/>.</returns>
+    /// <returns>配置合法返回true，否则返回false。</returns>
     private bool ValidateSettings()
     {
         bool valid =
@@ -623,11 +640,9 @@ public partial class Form1 : Form, IDisposable
     }
 
     /// <summary>
-    /// Validates the prerequisites for uploading files.
+    /// 校验上传前置条件（如待上传文件、配置等）。
     /// </summary>
-    /// <remarks>This method checks whether there are files pending for upload and verifies the configuration
-    /// settings.</remarks>
-    /// <returns><see langword="true"/> if the prerequisites for uploading are met; otherwise, <see langword="false"/>.</returns>
+    /// <returns>前置条件满足返回true，否则返回false。</returns>
     private bool ValidateUploadPrerequisites()
     {
         // 检查待上传文件列表是否为空
@@ -645,11 +660,8 @@ public partial class Form1 : Form, IDisposable
     }
 
     /// <summary>
-    /// Configures the HTTP client with the necessary request headers for upload operations.
+    /// 配置HttpClient请求头，供上传操作使用。
     /// </summary>
-    /// <remarks>This method sets up the HTTP client by applying tenant, trace, user ID, and user name headers
-    /// from the application settings. It is essential to call this method before performing any upload operations to
-    /// ensure that the client is properly configured with the required headers.</remarks>
     private static void SetUploadClient()
     {
         // 设定 HttpClient 的请求头
@@ -664,22 +676,19 @@ public partial class Form1 : Form, IDisposable
     #endregion
 
     /// <summary>
-    /// 在上传界面的提示标签中显示输入的内容
+    /// 在上传界面的提示标签中显示输入的内容。
     /// </summary>
-    /// <param name="hint"></param>
+    /// <param name="hint">要显示的提示文本。</param>
     private void LabelUploadHintPrint(string hint)
     {
-        if (labelUploadHint.InvokeRequired) labelUploadHint.Invoke(new Action(() => labelUploadHint.Text += hint));
+        if (labelUploadHint.InvokeRequired) labelUploadHint.Invoke(new Action(() => labelUploadHint.Text += "\n" + hint));
         else labelUploadHint.Text += hint;
     }
 
     /// <summary>
-    /// Updates the list box to display the names of files that have been uploaded.
+    /// 更新已上传文件列表框，显示所有已上传文件。
     /// </summary>
-    /// <remarks>This method ensures that the list box is updated on the UI thread. It clears any existing
-    /// items and adds the file names of the uploaded files.</remarks>
-    /// <param name="uploadedFiles">A list of <see cref="UploadJsonModel"/> objects representing the uploaded files. Each file's name will be
-    /// displayed in the list box.</param>
+    /// <param name="uploadedFiles">已上传文件的模型列表。</param>
     private void UpdateListBoxUploadComplete(List<UploadJsonModel>? uploadedFiles)
     {
         if (listBoxUploadComplete.InvokeRequired)
@@ -707,13 +716,19 @@ public partial class Form1 : Form, IDisposable
     }
 
     /// <summary>
-    /// Updates the pending upload list box by removing items that have been processed.
+    /// 更新待上传文件列表框，移除已处理的文件。
     /// </summary>
-    /// <remarks>This method checks if the update to the list box needs to be invoked on the UI thread. It
-    /// removes items from the list box that have a non-null file path in the provided list.</remarks>
-    /// <param name="responseInfos">A list of tuples containing information about files and their associated models. The first item in each tuple
-    /// represents the file path, which is used to identify and remove the corresponding item from the list box.</param>
-    private void UpdateListBoxPendingUpload(List<(string?, MouldSizesCutterResponseModel?, MouldSizesListResponseModel?, FileStorageUploadParamResponseModel?, MouldSizesCutterRequestModel?)?>? responseInfos)
+    /// <param name="responseInfos">
+    /// 包含待处理文件及其相关元数据的元组列表。
+    /// <list type="bullet">
+    /// <item><description>Item1: <c>string?</c> - 文件路径。</description></item>
+    /// <item><description>Item2: <c>MouldSizesCutterResponseModel?</c> - 型号规格查询响应对象。</description></item>
+    /// <item><description>Item3: <c>MouldSizesListResponseModel?</c> - 刀模编号查询响应对象。</description></item>
+    /// <item><description>Item4: <c>FileStorageUploadParamResponseModel?</c> - 上传参数响应对象。</description></item>
+    /// <item><description>Item5: <c>string?</c> - 新型号（如有）。</description></item>
+    /// </list>
+    /// </param>
+    private void UpdateListBoxPendingUpload(List<(string?, MouldSizesCutterResponseModel?, MouldSizesListResponseModel?, FileStorageUploadParamResponseModel?, string?)?>? responseInfos)
     {
         if (listBoxPendingUpload.InvokeRequired)
         {
@@ -724,8 +739,8 @@ public partial class Form1 : Form, IDisposable
                 responseInfos
                 ?.Where(file => file?.Item1 != null).ToList()
                 ?.ForEach(file => listBoxPendingUpload.Items.Remove(Path.GetFileName(file?.Item1) ?? ""));
-                listBoxUploadComplete.ResumeLayout();
-                listBoxUploadComplete.EndUpdate();
+                listBoxPendingUpload.ResumeLayout();
+                listBoxPendingUpload.EndUpdate();
             }));
         }
         else
@@ -735,8 +750,8 @@ public partial class Form1 : Form, IDisposable
             responseInfos
             ?.Where(file => file?.Item1 != null).ToList()
             ?.ForEach(file => listBoxPendingUpload.Items.Remove(Path.GetFileName(file?.Item1) ?? ""));
-            listBoxUploadComplete.ResumeLayout();
-            listBoxUploadComplete.EndUpdate();
+            listBoxPendingUpload.ResumeLayout();
+            listBoxPendingUpload.EndUpdate();
         }
     }
 
