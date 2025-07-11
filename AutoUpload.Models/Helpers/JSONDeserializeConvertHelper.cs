@@ -56,3 +56,32 @@ public class FlexibleListOrStringConverter<T> : JsonConverter<List<T>?>
         JsonSerializer.Serialize(writer, value, options);
     }
 }
+
+public class FlexibleDateTimeConverter : JsonConverter<DateTime?>
+{
+    public override DateTime? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.String)
+        {
+            var str = reader.GetString();
+            if (string.IsNullOrWhiteSpace(str)) return null;
+            // 支持多种格式
+            if (DateTime.TryParseExact(str, "yyyy-MM-dd HH:mm:ss", null, System.Globalization.DateTimeStyles.None, out var dt))
+                return dt;
+            if (DateTime.TryParse(str, out dt))
+                return dt;
+            throw new JsonException($"无法解析日期时间: {str}");
+        }
+        if (reader.TokenType == JsonTokenType.Null)
+            return null;
+        throw new JsonException("日期时间字段类型错误");
+    }
+
+    public override void Write(Utf8JsonWriter writer, DateTime? value, JsonSerializerOptions options)
+    {
+        if (value.HasValue)
+            writer.WriteStringValue(value.Value.ToString("yyyy-MM-dd HH:mm:ss"));
+        else
+            writer.WriteNullValue();
+    }
+}

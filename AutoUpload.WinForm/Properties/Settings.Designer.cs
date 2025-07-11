@@ -97,7 +97,7 @@ namespace AutoUpload.WinForm.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("1433719562612506626")]
+        [global::System.Configuration.DefaultSettingValueAttribute("1860922302836342786")]
         public string XUserId {
             get {
                 return ((string)(this["XUserId"]));
@@ -109,7 +109,7 @@ namespace AutoUpload.WinForm.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("aa")]
+        [global::System.Configuration.DefaultSettingValueAttribute("mabin")]
         public string XUserName {
             get {
                 return ((string)(this["XUserName"]));

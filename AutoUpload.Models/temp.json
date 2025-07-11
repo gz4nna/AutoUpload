@@ -1,0 +1,320 @@
+{
+  "user": {
+    "token": "57e66163-51cd-458a-8a39-7a1921cb31e2",
+    "userInfo": {
+      "accessToken": "57e66163-51cd-458a-8a39-7a1921cb31e2",
+      "account": "0102358",
+      "accountId": "1860922302844731393",
+      "deptName": "钮扣物仓",
+      "hostIp": null,
+      "mobilePhone": "13750641860",
+      "organDeptId": "1518859713162838017",
+      "organId": "1518858270502236161",
+      "organName": "浙江伟星实业发展股份有限公司临海钮扣分公司",
+      "organSaleId": "1518861204317601793",
+      "refreshToken": null,
+      "tenantId": "1627160160700962818",
+      "userId": "1860922302836342786",
+      "userName": "马斌",
+      "userRoles": [
+        {
+          "roleCode": "造型检索",
+          "roleId": "1860921065785098241",
+          "roleName": "钮扣造型检索查询岗",
+          "roleType": 2
+        }
+      ]
+    },
+    "userRole": [
+      {
+        "roleCode": "造型检索",
+        "roleId": "1860921065785098241",
+        "roleName": "钮扣造型检索查询岗",
+        "roleType": 2
+      }
+    ],
+    "name": "马斌",
+    "avatar": "",
+    "btnList": [],
+    "routers": [
+      {
+        "path": "/login",
+        "hidden": true
+      },
+      {
+        "path": "/",
+        "redirect": "/dashboard",
+        "children": [
+          {
+            "path": "dashboard",
+            "name": "Dashboard",
+            "meta": {
+              "title": "menu.dashboard",
+              "icon": "dashboard"
+            }
+          }
+        ]
+      },
+      {
+        "path": "/404",
+        "hidden": true
+      },
+      {
+        "path": "*",
+        "redirect": "/404",
+        "hidden": true
+      },
+      {
+        "alwaysShow": true,
+        "children": [
+          {
+            "alwaysShow": true,
+            "children": [],
+            "meta": {
+              "icon": "",
+              "title": "造型检索"
+            },
+            "name": "MouldSearchPage",
+            "parentId": "1859893776683204610",
+            "path": "mouldAndSize/mouldSearches/index",
+            "permission": "",
+            "redirect": "",
+            "resourceId": "1859894575010250754",
+            "hidden": false
+          }
+        ],
+        "component": {
+          "name": "Layout",
+          "components": {
+            "Navbar": {
+              "components": {
+                "Breadcrumb": {
+                  "mixins": [
+                    {
+                      "name": "mixinValidateEdittingStatus",
+                      "props": { "watchPage": { "default": "/product/routing/routeproducts/processPath" } },
+                      "watch": {},
+                      "methods": {},
+                      "staticRenderFns": [],
+                      "_compiled": true,
+                      "_scopeId": "data-v-7fedbe02"
+                    }
+                  ],
+                  "watch": {},
+                  "computed": {},
+                  "methods": {},
+                  "staticRenderFns": [],
+                  "_compiled": true,
+                  "_scopeId": "data-v-53f7ca82",
+                  "_Ctor": {}
+                },
+                "Hamburger": {
+                  "name": "Hamburger",
+                  "props": { "isActive": { "default": false } },
+                  "methods": {},
+                  "staticRenderFns": [],
+                  "_compiled": true,
+                  "_scopeId": "data-v-49e15297",
+                  "_Ctor": {}
+                },
+                "PhoneModal": {
+                  "name": "PhoneModal",
+                  "props": { "visible": {} },
+                  "computed": {},
+                  "methods": {},
+                  "staticRenderFns": [],
+                  "_compiled": true,
+                  "_scopeId": "data-v-96dac26a",
+                  "_Ctor": {}
+                },
+                "NotifyBlock": {
+                  "__name": "index",
+                  "staticRenderFns": [],
+                  "_compiled": true,
+                  "_scopeId": "data-v-381e5a96",
+                  "_Ctor": {}
+                },
+                "Notify": {
+                  "name": "Notify",
+                  "components": {
+                    "MessageBoxCom": {
+                      "name": "MessageBox",
+                      "props": { "visible": { "default": false } },
+                      "computed": {},
+                      "methods": {},
+                      "watch": {
+                        "visible": {
+                          "immediate": false,
+                          "user": true
+                        }
+                      },
+                      "staticRenderFns": [],
+                      "_compiled": true,
+                      "_scopeId": "data-v-2cc2da70",
+                      "_Ctor": {}
+                    }
+                  },
+                  "computed": {},
+                  "methods": {},
+                  "staticRenderFns": [],
+                  "_compiled": true,
+                  "_scopeId": "data-v-0a8e5396",
+                  "_Ctor": {}
+                },
+                "FixedFeedback": {
+                  "__name": "index",
+                  "staticRenderFns": [],
+                  "_compiled": true,
+                  "_Ctor": {}
+                }
+              },
+              "computed": {},
+              "methods": {},
+              "staticRenderFns": [],
+              "_compiled": true,
+              "_scopeId": "data-v-1d6c1de0",
+              "_Ctor": {}
+            },
+            "Sidebar": {
+              "components": {
+                "SidebarItem": {
+                  "name": "SidebarItem",
+                  "components": {
+                    "Item": {
+                      "name": "MenuItem",
+                      "functional": true,
+                      "props": {
+                        "icon": { "default": "" },
+                        "title": { "default": "" }
+                      },
+                      "_scopeId": "data-v-2b2a62da",
+                      "_Ctor": {}
+                    },
+                    "AppLink": {
+                      "props": { "to": { "required": true } },
+                      "computed": {},
+                      "methods": {},
+                      "staticRenderFns": [],
+                      "_compiled": true,
+                      "_Ctor": {}
+                    }
+                  },
+                  "mixins": [
+                    {
+                      "computed": {},
+                      "methods": {}
+                    }
+                  ],
+                  "props": {
+                    "item": { "required": true },
+                    "isNest": { "default": false },
+                    "basePath": { "default": "" }
+                  },
+                  "methods": {},
+                  "staticRenderFns": [],
+                  "_compiled": true,
+                  "_Ctor": {}
+                },
+                "Logo": {
+                  "name": "SidebarLogo",
+                  "props": { "collapse": { "required": true } },
+                  "staticRenderFns": [],
+                  "_compiled": true,
+                  "_scopeId": "data-v-0cfd7a9e",
+                  "_Ctor": {}
+                }
+              },
+              "mixins": [
+                {
+                  "name": "mixinValidateEdittingStatus",
+                  "props": { "watchPage": { "default": "/product/routing/routeproducts/processPath" } },
+                  "watch": {},
+                  "methods": {},
+                  "staticRenderFns": [],
+                  "_compiled": true,
+                  "_scopeId": "data-v-7fedbe02"
+                }
+              ],
+              "computed": {},
+              "staticRenderFns": [],
+              "_compiled": true,
+              "_Ctor": {}
+            },
+            "AppMain": {
+              "name": "AppMain",
+              "components": {
+                "MicroAppView": {
+                  "name": "MicroAppView",
+                  "computed": {},
+                  "methods": {},
+                  "staticRenderFns": [],
+                  "_compiled": true
+                }
+              },
+              "computed": {},
+              "watch": {},
+              "methods": {},
+              "staticRenderFns": [],
+              "_compiled": true,
+              "_scopeId": "data-v-398a7de8",
+              "_Ctor": {}
+            },
+            "TagsView": {
+              "components": {
+                "ScrollPane": {
+                  "name": "ScrollPane",
+                  "computed": {},
+                  "methods": {},
+                  "staticRenderFns": [],
+                  "_compiled": true,
+                  "_scopeId": "data-v-dd099aa2"
+                }
+              },
+              "mixins": [
+                {
+                  "name": "mixinValidateEdittingStatus",
+                  "props": { "watchPage": { "default": "/product/routing/routeproducts/processPath" } },
+                  "watch": {},
+                  "methods": {},
+                  "staticRenderFns": [],
+                  "_compiled": true,
+                  "_scopeId": "data-v-7fedbe02"
+                }
+              ],
+              "computed": {},
+              "watch": {},
+              "methods": {},
+              "staticRenderFns": [],
+              "_compiled": true,
+              "_scopeId": "data-v-3c521c92",
+              "_Ctor": {}
+            }
+          },
+          "mixins": [
+            {
+              "watch": {},
+              "methods": {}
+            }
+          ],
+          "computed": {},
+          "methods": {},
+          "staticRenderFns": [],
+          "_compiled": true,
+          "_scopeId": "data-v-48982048",
+          "_Ctor": {}
+        },
+        "meta": {
+          "icon": "el-icon-bicycle",
+          "title": "造型和尺寸"
+        },
+        "name": "MouldAndSize",
+        "parentId": -1,
+        "path": "/dp-web-mould",
+        "permission": "",
+        "redirect": "",
+        "resourceId": "1859893776683204610",
+        "hidden": false
+      }
+    ]
+  }
+}

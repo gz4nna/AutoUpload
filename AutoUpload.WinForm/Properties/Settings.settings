@@ -21,10 +21,10 @@
       <Value Profile="(Default)">12345678</Value>
     </Setting>
     <Setting Name="XUserId" Type="System.String" Scope="User">
-      <Value Profile="(Default)">1433719562612506626</Value>
+      <Value Profile="(Default)">1860922302836342786</Value>
     </Setting>
     <Setting Name="XUserName" Type="System.String" Scope="User">
-      <Value Profile="(Default)">aa</Value>
+      <Value Profile="(Default)">mabin</Value>
     </Setting>
     <Setting Name="WriteURL" Type="System.String" Scope="User">
       <Value Profile="(Default)">http://10.101.12.30:32516/dp-mould/api/v1/mould-sizes/cutter</Value>

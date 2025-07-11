@@ -24,6 +24,7 @@ public class MouldSizesCutterResponseModelData
     public int? containerNum { get; set; } = 0;
     public string? createBy { get; set; } = string.Empty;
     public string? createByName { get; set; } = string.Empty;
+    [JsonConverter(typeof(FlexibleDateTimeConverter))]
     public DateTime? createTime { get; set; } = DateTime.MinValue;
     public int? cutterBlankSpec { get; set; } = 0;
     public int? cutterType { get; set; } = 0;
@@ -41,6 +42,7 @@ public class MouldSizesCutterResponseModelData
     public string? tenantId { get; set; } = string.Empty;
     public string? updateBy { get; set; } = string.Empty;
     public string? updateByName { get; set; } = string.Empty;
+    [JsonConverter(typeof(FlexibleDateTimeConverter))]
     public DateTime? updateTime { get; set; } = DateTime.MinValue;
 }
 

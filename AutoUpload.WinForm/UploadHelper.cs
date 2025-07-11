@@ -623,6 +623,8 @@ public class UploadHelper
         var fileName = Path.GetFileName(responseInfo?.Item1)?.Replace(Path.GetFileNameWithoutExtension(responseInfo?.Item1)?.Split()?[0], responseInfo?.Item5);
         // 文件在文件服务器上的地址,有空直接输出null
         var fileUrl = responseInfo?.Item4?.data?.FirstOrDefault()?.fileUrl;
+        // 替换文件位置,yikai去前端改了这里不用动
+        // if (fileUrl != null) fileUrl = fileUrl.Replace("group1", "group2");
         // 刀模编号,如果没有就null
         long? mouldSizeCutterId = long.TryParse(responseInfo?.Item2?.data?.FirstOrDefault()?.mouldSizeCutterId, out _) ?
             long.Parse(responseInfo?.Item2?.data?.FirstOrDefault()?.mouldSizeCutterId) :

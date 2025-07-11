@@ -117,7 +117,7 @@ public partial class Form1 : Form, IDisposable
 #else
             this.txtPath.ReadOnly = true; // 发布版本中禁止直接在文本框中修改路径,可以通过UI设置来修改
 #endif
-
+            // 最小化到托盘
             this.notifyIcon = new NotifyIcon();
             this.contextMenuStrip = new ContextMenuStrip();
             this.menuShow = new ToolStripMenuItem("主界面");
@@ -137,6 +137,7 @@ public partial class Form1 : Form, IDisposable
             this.menuShow.Click += (s, e) => ShowMainWindow();
             this.menuExit.Click += (s, e) => Application.Exit();
 
+            // 定时上传
             timer = new System.Threading.Timer(
                 async _ => await UploadPre(),
                 null,
