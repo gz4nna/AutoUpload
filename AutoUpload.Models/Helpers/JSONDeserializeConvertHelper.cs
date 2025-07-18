@@ -65,12 +65,30 @@ public class FlexibleDateTimeConverter : JsonConverter<DateTime?>
         {
             var str = reader.GetString();
             if (string.IsNullOrWhiteSpace(str)) return null;
-            // 支持多种格式
+            // 支持标准日期格式
             if (DateTime.TryParseExact(str, "yyyy-MM-dd HH:mm:ss", null, System.Globalization.DateTimeStyles.None, out var dt))
                 return dt;
             if (DateTime.TryParse(str, out dt))
                 return dt;
+            // 支持字符串形式的时间戳
+            if (long.TryParse(str, out var ts))
+            {
+                // 判断时间戳长度，Java时间戳为毫秒，Unix时间戳为秒
+                if (str.Length >= 13)
+                    return DateTimeOffset.FromUnixTimeMilliseconds(ts).LocalDateTime;
+                else
+                    return DateTimeOffset.FromUnixTimeSeconds(ts).LocalDateTime;
+            }
             throw new JsonException($"无法解析日期时间: {str}");
+        }
+        if (reader.TokenType == JsonTokenType.Number)
+        {
+            var ts = reader.GetInt64();
+            // 判断时间戳长度，Java时间戳为毫秒，Unix时间戳为秒
+            if (ts > 9999999999) // 毫秒级
+                return DateTimeOffset.FromUnixTimeMilliseconds(ts).LocalDateTime;
+            else // 秒级
+                return DateTimeOffset.FromUnixTimeSeconds(ts).LocalDateTime;
         }
         if (reader.TokenType == JsonTokenType.Null)
             return null;
